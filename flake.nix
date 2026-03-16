@@ -45,7 +45,7 @@
 
           meta = {
             description = "Browser tab management from the terminal";
-            license = nixpkgs.lib.licenses.mit;
+            license = nixpkgs.lib.licenses.agpl3Plus;
             mainProgram = "rustab";
           };
         };
