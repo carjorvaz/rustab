@@ -1,0 +1,24 @@
+{
+  "manifest_version": 2,
+  "name": "rustab",
+  "version": "0.1.0",
+  "description": "Browser tab management from the terminal",
+  "permissions": [
+    "nativeMessaging",
+    "tabs"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "rustab@rustab.dev",
+      "strict_min_version": "58.0"
+    }
+  },
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

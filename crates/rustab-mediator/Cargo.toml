@@ -1,0 +1,9 @@
+[package]
+name = "rustab-mediator"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustab-protocol = { path = "../rustab-protocol" }
+serde_json.workspace = true
+tokio.workspace = true

@@ -1,0 +1,54 @@
+   0.027273831s  INFO prepare_target{force=false package_id=rustab-mediator v0.1.0 (/home/cjv/Documents/rustab/crates/rustab-mediator) target="rustab-mediator"}: cargo::core::compiler::fingerprint: fingerprint error for rustab-mediator v0.1.0 (/home/cjv/Documents/rustab/crates/rustab-mediator)/Check { test: false }/TargetInner { name: "rustab-mediator", doc: true, ..: with_path("/home/cjv/Documents/rustab/crates/rustab-mediator/src/main.rs", Edition2021) }
+   0.027292216s  INFO prepare_target{force=false package_id=rustab-mediator v0.1.0 (/home/cjv/Documents/rustab/crates/rustab-mediator) target="rustab-mediator"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/cjv/Documents/rustab/target/debug/.fingerprint/rustab-mediator-02d8b1ff65464840/bin-rustab-mediator`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::io::error::Error as anyhow::context::ext::StdError>::ext_context::<alloc::string::String>
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::prepare_target
+   3: cargo::core::compiler::compile
+   4: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   5: cargo::ops::cargo_compile::compile_ws
+   6: cargo::ops::cargo_compile::compile_with_exec
+   7: cargo::ops::cargo_compile::compile
+   8: cargo::commands::check::exec
+   9: <cargo::cli::Exec>::exec
+  10: cargo::cli::main
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: std::rt::lang_start_internal
+  15: main
+  16: __libc_start_call_main
+  17: __libc_start_main_alias_2
+  18: _start
+   0.030171358s  INFO prepare_target{force=false package_id=rustab-mediator v0.1.0 (/home/cjv/Documents/rustab/crates/rustab-mediator) target="rustab-mediator"}: cargo::core::compiler::fingerprint: fingerprint error for rustab-mediator v0.1.0 (/home/cjv/Documents/rustab/crates/rustab-mediator)/Check { test: true }/TargetInner { name: "rustab-mediator", doc: true, ..: with_path("/home/cjv/Documents/rustab/crates/rustab-mediator/src/main.rs", Edition2021) }
+   0.030182339s  INFO prepare_target{force=false package_id=rustab-mediator v0.1.0 (/home/cjv/Documents/rustab/crates/rustab-mediator) target="rustab-mediator"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/cjv/Documents/rustab/target/debug/.fingerprint/rustab-mediator-08baaec6b540ec51/test-bin-rustab-mediator`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: <std::io::error::Error as anyhow::context::ext::StdError>::ext_context::<alloc::string::String>
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::prepare_target
+   3: cargo::core::compiler::compile
+   4: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   5: cargo::ops::cargo_compile::compile_ws
+   6: cargo::ops::cargo_compile::compile_with_exec
+   7: cargo::ops::cargo_compile::compile
+   8: cargo::commands::check::exec
+   9: <cargo::cli::Exec>::exec
+  10: cargo::cli::main
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: std::rt::lang_start_internal
+  15: main
+  16: __libc_start_call_main
+  17: __libc_start_main_alias_2
+  18: _start
+    Checking rustab-mediator v0.1.0 (/home/cjv/Documents/rustab/crates/rustab-mediator)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s

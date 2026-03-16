@@ -1,0 +1,16 @@
+[package]
+name = "rustab-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rustab"
+path = "src/main.rs"
+
+[dependencies]
+rustab-protocol = { path = "../rustab-protocol" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
