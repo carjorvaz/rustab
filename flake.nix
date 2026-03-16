@@ -60,13 +60,23 @@
           '';
         };
 
+        # Packaged as an XPI matching the rycee/nur firefox-addons layout
+        # so it works with programs.firefox.profiles.<name>.extensions.packages
         firefox-extension = pkgs.stdenvNoCC.mkDerivation {
-          pname = "rustab-firefox-extension";
+          pname = "rustab";
           version = "0.1.0";
           src = self;
+
+          addonId = "rustab@rustab.dev";
+
+          buildPhase = ''
+            cd extensions/firefox
+            ${pkgs.zip}/bin/zip -r ../../rustab.xpi ./*
+          '';
+
           installPhase = ''
-            mkdir -p $out
-            cp extensions/firefox/* $out/
+            install -Dm444 rustab.xpi \
+              "$out/share/mozilla/extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}/rustab@rustab.dev.xpi"
           '';
         };
 
