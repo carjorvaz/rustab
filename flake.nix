@@ -67,7 +67,7 @@
           version = "0.1.0";
           src = self;
 
-          addonId = "rustab@rustab.dev";
+          passthru.addonId = "rustab@rustab.dev";
 
           buildPhase = ''
             cd extensions/firefox
