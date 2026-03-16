@@ -15,7 +15,6 @@
           version = "0.1.0";
           src = self;
 
-          useFetchCargoVendor = true;
           cargoHash = "sha256-QPtSTPPsKr1c19+V6eK7Bt/mkqULgWpOF9364KdJ8Fo=";
 
           postInstall = ''
@@ -39,7 +38,7 @@
               "description": "rustab native messaging host",
               "path": "$out/bin/rustab-mediator",
               "type": "stdio",
-              "allowed_origins": ["chrome-extension://PLACEHOLDER_EXTENSION_ID/"]
+              "allowed_origins": ["chrome-extension://nddbmnpippfilnjoebpcnfbpebnllbgo/"]
             }
             EOF
           '';

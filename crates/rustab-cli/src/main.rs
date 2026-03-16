@@ -408,7 +408,7 @@ fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<Strin
         eprintln!("Note: No --chrome-extension-id provided.");
         eprintln!("      After loading the Chrome extension, find its ID at chrome://extensions");
         eprintln!("      and re-run: rustab install --chrome-extension-id <ID>");
-        "PLACEHOLDER_EXTENSION_ID".to_string()
+        "nddbmnpippfilnjoebpcnfbpebnllbgo".to_string()
     });
 
     let mut installed = 0;
