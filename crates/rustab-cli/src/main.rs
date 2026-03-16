@@ -4,7 +4,7 @@ use rustab_protocol::{
     write_message, BROWSERS, FIREFOX_EXTENSION_ID, NATIVE_HOST_NAME,
 };
 use serde_json::{json, Value};
-use std::io::BufRead;
+use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
 use tokio::net::UnixStream;
 
@@ -180,7 +180,7 @@ fn collect_tab_ids(mut args: Vec<String>) -> Vec<String> {
 }
 
 fn atty_stdin() -> bool {
-    unsafe { libc::isatty(libc::STDIN_FILENO) != 0 }
+    std::io::stdin().is_terminal()
 }
 
 // --- Commands ---

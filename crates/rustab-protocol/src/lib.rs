@@ -82,6 +82,7 @@ pub fn browser_prefix(browser: &str) -> &str {
         "zen" => "z",
         "edge" => "e",
         "vivaldi" => "v",
+        "opera" => "o",
         _ => "u",
     }
 }

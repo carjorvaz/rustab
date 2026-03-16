@@ -15,7 +15,7 @@
           version = "0.1.0";
           src = self;
 
-          cargoHash = "sha256-QPtSTPPsKr1c19+V6eK7Bt/mkqULgWpOF9364KdJ8Fo=";
+          cargoHash = "sha256-2ouSy1W48Xmi7zqiLorDkXKaP6YoDgSCgig24VjS7K0=";
 
           postInstall = ''
             # Firefox native messaging host manifest
