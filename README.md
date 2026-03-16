@@ -45,7 +45,7 @@ Add rustab as a flake input:
 The flake provides three packages:
 - `rustab` -- CLI + mediator binaries with native messaging manifests
 - `chrome-extension` -- unpacked Chrome extension directory
-- `firefox-extension` -- XPI packaged for `programs.firefox.profiles.<name>.extensions.packages`
+- `firefox-extension` -- XPI for Firefox (install via policy, see below)
 
 #### Brave / Chrome / Chromium
 
@@ -65,11 +65,17 @@ home.file.".config/BraveSoftware/Brave-Browser/NativeMessagingHosts/rustab_media
 
 #### Firefox
 
+The extension XPI is not AMO-signed, so it must be installed via Firefox enterprise policy rather than `extensions.packages`:
+
 ```nix
-programs.firefox = {
-  nativeMessagingHosts = [ pkgs.rustab ];
-  profiles.default.extensions.packages = [ pkgs.rustab-firefox-extension ];
+# NixOS-level (programs.firefox.policies)
+programs.firefox.policies.ExtensionSettings."rustab@rustab.dev" = {
+  installation_mode = "force_installed";
+  install_url = "file://${pkgs.rustab-firefox-extension}/share/mozilla/extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}/rustab@rustab.dev.xpi";
 };
+
+# home-manager (native messaging host)
+programs.firefox.nativeMessagingHosts = [ pkgs.rustab ];
 ```
 
 ### Manual
