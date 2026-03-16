@@ -71,11 +71,11 @@
 
           buildPhase = ''
             cd extensions/firefox
-            ${pkgs.zip}/bin/zip -r ../../rustab.xpi ./*
+            ${pkgs.zip}/bin/zip -r $TMPDIR/rustab.xpi ./*
           '';
 
           installPhase = ''
-            install -Dm444 rustab.xpi \
+            install -Dm444 $TMPDIR/rustab.xpi \
               "$out/share/mozilla/extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}/rustab@rustab.dev.xpi"
           '';
         };
