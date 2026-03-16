@@ -16,7 +16,7 @@
           src = self;
 
           useFetchCargoVendor = true;
-          cargoHash = nixpkgs.lib.fakeHash;
+          cargoHash = "sha256-QPtSTPPsKr1c19+V6eK7Bt/mkqULgWpOF9364KdJ8Fo=";
 
           postInstall = ''
             # Firefox native messaging host manifest
