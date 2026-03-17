@@ -242,10 +242,9 @@ async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
             for (browser, tab) in &all_tabs {
                 let prefix = browser_prefix(browser);
                 let id = tab.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-                let window_id = tab.get("window_id").and_then(|v| v.as_u64()).unwrap_or(0);
                 let title = tab.get("title").and_then(|v| v.as_str()).unwrap_or("");
                 let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                println!("{prefix}.{id}\t{window_id}\t{title}\t{url}");
+                println!("{prefix}.{id}\t{title}\t{url}");
             }
         }
     }
