@@ -82,7 +82,7 @@ cargo build --release
 
 Then load the browser extension:
 - **Chrome/Brave**: Go to `chrome://extensions`, enable Developer Mode, "Load unpacked" from `extensions/chrome/`
-- **Firefox**: Go to `about:debugging#/runtime/this-firefox`, "Load Temporary Add-on" from `extensions/firefox/manifest.json`
+- **Firefox**: Open `extensions/firefox-signed/rustab@rustab.dev.xpi` in Firefox to install
 
 ## Usage
 
