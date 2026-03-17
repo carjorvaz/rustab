@@ -215,6 +215,9 @@ async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
         }
     }
 
+    // Sort by window so tabs from the same window are grouped together
+    all_tabs.sort_by_key(|(_, tab)| tab.get("window_id").and_then(|v| v.as_u64()).unwrap_or(0));
+
     match format {
         OutputFormat::Json => {
             let out: Vec<Value> = all_tabs
@@ -222,9 +225,11 @@ async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
                 .map(|(browser, tab)| {
                     let prefix = browser_prefix(browser);
                     let id = tab.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let window_id = tab.get("window_id").and_then(|v| v.as_u64()).unwrap_or(0);
                     json!({
                         "id": format!("{prefix}.{id}"),
                         "browser": browser,
+                        "window_id": window_id,
                         "title": tab.get("title").and_then(|v| v.as_str()).unwrap_or(""),
                         "url": tab.get("url").and_then(|v| v.as_str()).unwrap_or(""),
                         "active": tab.get("active").and_then(|v| v.as_bool()).unwrap_or(false),
@@ -237,9 +242,10 @@ async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
             for (browser, tab) in &all_tabs {
                 let prefix = browser_prefix(browser);
                 let id = tab.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                let window_id = tab.get("window_id").and_then(|v| v.as_u64()).unwrap_or(0);
                 let title = tab.get("title").and_then(|v| v.as_str()).unwrap_or("");
                 let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                println!("{prefix}.{id}\t{title}\t{url}");
+                println!("{prefix}.{id}\t{window_id}\t{title}\t{url}");
             }
         }
     }
