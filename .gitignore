@@ -1,3 +1,6 @@
 /target
 /.direnv
 result
+.web-ext-credentials
+web-ext-artifacts/
+extensions/firefox/.amo-upload-uuid

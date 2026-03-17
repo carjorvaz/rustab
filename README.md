@@ -65,17 +65,11 @@ home.file.".config/BraveSoftware/Brave-Browser/NativeMessagingHosts/rustab_media
 
 #### Firefox
 
-The extension XPI is not AMO-signed, so it must be installed via Firefox enterprise policy rather than `extensions.packages`:
-
 ```nix
 # home-manager programs.firefox
 programs.firefox = {
   nativeMessagingHosts = [ pkgs.rustab ];
-
-  policies.ExtensionSettings."rustab@rustab.dev" = {
-    installation_mode = "force_installed";
-    install_url = "file://${pkgs.rustab-firefox-extension}/share/mozilla/extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}/rustab@rustab.dev.xpi";
-  };
+  profiles.default.extensions.packages = [ pkgs.rustab-firefox-extension ];
 };
 ```
 

@@ -60,8 +60,11 @@
           '';
         };
 
-        # Packaged as an XPI matching the rycee/nur firefox-addons layout
+        # AMO-signed XPI matching the rycee/nur firefox-addons layout
         # so it works with programs.firefox.profiles.<name>.extensions.packages
+        # Re-sign after changes: source .web-ext-credentials && web-ext sign \
+        #   --source-dir=extensions/firefox --channel=unlisted \
+        #   --api-key=$WEB_EXT_API_KEY --api-secret=$WEB_EXT_API_SECRET
         firefox-extension = pkgs.stdenvNoCC.mkDerivation {
           pname = "rustab";
           version = "0.1.0";
@@ -69,13 +72,8 @@
 
           passthru.addonId = "rustab@rustab.dev";
 
-          buildPhase = ''
-            cd extensions/firefox
-            ${pkgs.zip}/bin/zip -r $TMPDIR/rustab.xpi ./*
-          '';
-
           installPhase = ''
-            install -Dm444 $TMPDIR/rustab.xpi \
+            install -Dm444 extensions/firefox-signed/rustab@rustab.dev.xpi \
               "$out/share/mozilla/extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}/rustab@rustab.dev.xpi"
           '';
         };
