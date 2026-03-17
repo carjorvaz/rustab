@@ -45,7 +45,7 @@ Add rustab as a flake input:
 The flake provides three packages:
 - `rustab` -- CLI + mediator binaries with native messaging manifests
 - `chrome-extension` -- unpacked Chrome extension directory
-- `firefox-extension` -- XPI for Firefox (install via policy, see below)
+- `firefox-extension` -- AMO-signed XPI for Firefox
 
 #### Brave / Chrome / Chromium
 
@@ -66,7 +66,7 @@ home.file.".config/BraveSoftware/Brave-Browser/NativeMessagingHosts/rustab_media
 #### Firefox
 
 ```nix
-# home-manager programs.firefox
+# home-manager
 programs.firefox = {
   nativeMessagingHosts = [ pkgs.rustab ];
   profiles.default.extensions.packages = [ pkgs.rustab-firefox-extension ];
@@ -82,20 +82,32 @@ cargo build --release
 
 Then load the browser extension:
 - **Chrome/Brave**: Go to `chrome://extensions`, enable Developer Mode, "Load unpacked" from `extensions/chrome/`
-- **Firefox**: Go to `about:debugging#/runtime/this-firefox`, "Load Temporary Add-on" from `extensions/firefox/`
+- **Firefox**: Go to `about:debugging#/runtime/this-firefox`, "Load Temporary Add-on" from `extensions/firefox/manifest.json`
 
 ## Usage
 
 ```
-rustab list                         # list all tabs (TSV)
-rustab list --format json           # list all tabs (JSON)
-rustab list --browser brave         # list tabs from Brave only
-rustab close b.42 b.99              # close specific tabs
+rustab list                                # list all tabs (TSV)
+rustab list --format json                  # list all tabs (JSON)
+rustab list --browser brave                # list tabs from Brave only
+rustab close b.42 b.99                     # close specific tabs
 rustab list | grep github | rustab close   # pipe pattern
-rustab activate c.42                # focus a tab
-rustab open https://example.com     # open URL in first available browser
-rustab open -b firefox https://x.com  # open in specific browser
-rustab clients                      # show connected browsers
+rustab activate c.42                       # focus a tab
+rustab open https://example.com            # open URL in first available browser
+rustab open -b firefox https://x.com       # open in specific browser
+rustab clients                             # show connected browsers
+```
+
+## Development
+
+The flake includes a dev shell with Rust toolchain and `web-ext` for Firefox extension signing:
+
+```sh
+# Sign the Firefox extension after changes (requires AMO API credentials in .web-ext-credentials)
+source .web-ext-credentials
+web-ext sign --source-dir=extensions/firefox --channel=unlisted \
+  --api-key=$WEB_EXT_API_KEY --api-secret=$WEB_EXT_API_SECRET
+cp web-ext-artifacts/*.xpi extensions/firefox-signed/rustab@rustab.dev.xpi
 ```
 
 ## License

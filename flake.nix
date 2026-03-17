@@ -89,6 +89,7 @@
           rustfmt
           gcc
           pkg-config
+          nodePackages.web-ext
         ];
       };
     };
