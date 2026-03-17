@@ -2,6 +2,10 @@
 
 Browser tab management from the terminal. A Rust replacement for [brotab](https://github.com/balta2ar/brotab).
 
+> **Note**: This project was built with [Claude Code](https://github.com/anthropics/claude-code). Architecture was carefully designed based on studying the Claude Chrome extension's native messaging implementation, brotab, and tabctl.
+
+Particularly useful with AI coding tools like Claude Code — lets your AI assistant list, search, open, and close browser tabs programmatically.
+
 ```
 $ rustab list
 b.42    GitHub - rustab      https://github.com/user/rustab
