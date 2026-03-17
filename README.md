@@ -37,7 +37,7 @@ Add rustab as a flake input:
 
 ```nix
 {
-  inputs.rustab.url = "github:cajorvaz/rustab";
+  inputs.rustab.url = "github:carjorvaz/rustab";
   inputs.rustab.inputs.nixpkgs.follows = "nixpkgs";
 }
 ```
