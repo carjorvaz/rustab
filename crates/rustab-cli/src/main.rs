@@ -65,6 +65,10 @@ enum Command {
 
 #[tokio::main]
 async fn main() {
+    // Reset SIGPIPE so piping to `head` etc. exits cleanly
+    // instead of panicking (Rust sets SIG_IGN by default).
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL); }
+
     let cli = Cli::parse();
 
     let code = match cli.command {
