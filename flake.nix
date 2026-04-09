@@ -5,11 +5,18 @@
 
   outputs = { nixpkgs, self, ... }:
     let
-      system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      forAllSystems = f:
+        nixpkgs.lib.genAttrs systems
+          (system: f system nixpkgs.legacyPackages.${system});
     in
     {
-      packages.${system} = rec {
+      packages = forAllSystems (system: pkgs: rec {
         rustab = pkgs.rustPlatform.buildRustPackage {
           pname = "rustab";
           version = "0.1.0";
@@ -19,8 +26,8 @@
 
           postInstall = ''
             # Firefox native messaging host manifest
-            install -Dm444 /dev/stdin \
-              $out/lib/mozilla/native-messaging-hosts/rustab_mediator.json <<EOF
+            mkdir -p $out/lib/mozilla/native-messaging-hosts
+            cat > $out/lib/mozilla/native-messaging-hosts/rustab_mediator.json <<EOF
             {
               "name": "rustab_mediator",
               "description": "rustab native messaging host",
@@ -29,10 +36,11 @@
               "allowed_extensions": ["rustab@rustab.dev"]
             }
             EOF
+            chmod 444 $out/lib/mozilla/native-messaging-hosts/rustab_mediator.json
 
             # Chromium native messaging host manifest
-            install -Dm444 /dev/stdin \
-              $out/etc/chromium/native-messaging-hosts/rustab_mediator.json <<EOF
+            mkdir -p $out/etc/chromium/native-messaging-hosts
+            cat > $out/etc/chromium/native-messaging-hosts/rustab_mediator.json <<EOF
             {
               "name": "rustab_mediator",
               "description": "rustab native messaging host",
@@ -41,12 +49,14 @@
               "allowed_origins": ["chrome-extension://nddbmnpippfilnjoebpcnfbpebnllbgo/"]
             }
             EOF
+            chmod 444 $out/etc/chromium/native-messaging-hosts/rustab_mediator.json
           '';
 
           meta = {
             description = "Browser tab management from the terminal";
             license = nixpkgs.lib.licenses.agpl3Plus;
             mainProgram = "rustab";
+            platforms = nixpkgs.lib.platforms.unix;
           };
         };
 
@@ -79,18 +89,19 @@
         };
 
         default = rustab;
-      };
+      });
 
-      devShells.${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          rustc
-          cargo
-          clippy
-          rustfmt
-          gcc
-          pkg-config
-          nodePackages.web-ext
-        ];
-      };
+      devShells = forAllSystems (system: pkgs: {
+        default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            rustc
+            cargo
+            clippy
+            rustfmt
+            pkg-config
+            nodePackages.web-ext
+          ];
+        };
+      });
     };
 }
