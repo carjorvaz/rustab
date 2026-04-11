@@ -80,6 +80,15 @@ def parse_args() -> argparse.Namespace:
         help="Path to a Chromium-family browser binary that supports --pack-extension.",
     )
     parser.add_argument(
+        "--browser-arg",
+        action="append",
+        default=[],
+        help=(
+            "Additional flag to pass through to the browser when packaging. "
+            "Repeat as needed."
+        ),
+    )
+    parser.add_argument(
         "--extension-id",
         default=DEFAULT_EXTENSION_ID,
         help="Chromium extension ID. Defaults to rustab's stable ID.",
@@ -157,11 +166,13 @@ def render_extension_settings(update_url: str, installation_mode: str) -> dict:
 
 def package_extension(
     browser_binary: Path,
+    browser_args: list[str],
     extension_dir: Path,
     key_path: Path,
 ) -> Path:
     command = [
         str(browser_binary),
+        *browser_args,
         f"--pack-extension={extension_dir}",
         f"--pack-extension-key={key_path}",
     ]
@@ -210,7 +221,12 @@ def main() -> int:
         staged_manifest["update_url"] = update_url
         write_manifest(staged_manifest_path, staged_manifest)
 
-        crx_path = package_extension(browser_binary, staged_extension_dir, key_path)
+        crx_path = package_extension(
+            browser_binary,
+            args.browser_arg,
+            staged_extension_dir,
+            key_path,
+        )
         final_crx_path = out_dir / crx_filename
         shutil.move(crx_path, final_crx_path)
 

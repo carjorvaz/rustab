@@ -93,7 +93,8 @@ jobs:
             --base-url "${{ steps.meta.outputs.pages_base_url }}" \
             --codebase-url "${{ steps.meta.outputs.release_asset_url }}" \
             --out-dir "$PWD/dist/chromium" \
-            --browser-binary "$(command -v chromium)"
+            --browser-binary "$(command -v chromium)" \
+            --browser-arg=--no-sandbox
 
       - name: Publish release asset
         env:
