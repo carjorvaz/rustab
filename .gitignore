@@ -1,6 +1,10 @@
 /target
 /.direnv
+dist/
 result
+site/
+rustab-chromium.pem
 .web-ext-credentials
 web-ext-artifacts/
 extensions/firefox/.amo-upload-uuid
+extensions/chrome/key.pem

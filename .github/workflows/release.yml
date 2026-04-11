@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+
+      - name: Derive release metadata
+        id: meta
+        env:
+          PAGES_BASE_URL_OVERRIDE: ${{ vars.RUSTAB_CHROMIUM_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          version="$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("extensions/chrome/manifest.json").read_text())
+          print(manifest["version"])
+          PY
+          )"
+
+          tag="${GITHUB_REF_NAME}"
+          tag_version="${tag#v}"
+          if [ "$tag_version" != "$version" ]; then
+            echo "tag ${tag} does not match extensions/chrome/manifest.json version ${version}" >&2
+            exit 1
+          fi
+
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          repo_name_lower="$(printf '%s' "$repo_name" | tr '[:upper:]' '[:lower:]')"
+          if [ "$repo_name_lower" = "${owner}.github.io" ]; then
+            default_pages_base_url="https://${owner}.github.io/chromium"
+          else
+            default_pages_base_url="https://${owner}.github.io/${repo_name}/chromium"
+          fi
+
+          pages_base_url="${PAGES_BASE_URL_OVERRIDE:-$default_pages_base_url}"
+          crx_name="rustab-${version}.crx"
+          release_asset_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${tag}/${crx_name}"
+
+          {
+            echo "version=${version}"
+            echo "crx_name=${crx_name}"
+            echo "pages_base_url=${pages_base_url}"
+            echo "release_asset_url=${release_asset_url}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        run: nix develop -c cargo test
+
+      - name: Run flake checks
+        run: nix flake check --print-build-logs
+
+      - name: Write Chromium extension signing key
+        env:
+          CHROMIUM_EXTENSION_KEY_PEM: ${{ secrets.CHROMIUM_EXTENSION_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CHROMIUM_EXTENSION_KEY_PEM}" ]; then
+            echo "repository secret CHROMIUM_EXTENSION_KEY_PEM is required" >&2
+            exit 1
+          fi
+
+          umask 077
+          printf '%s\n' "$CHROMIUM_EXTENSION_KEY_PEM" > rustab-chromium.pem
+
+      - name: Package Chromium release bundle
+        run: |
+          set -euo pipefail
+          nix shell .#package-chromium-release nixpkgs#chromium -c \
+            package-chromium-release \
+            --key "$PWD/rustab-chromium.pem" \
+            --base-url "${{ steps.meta.outputs.pages_base_url }}" \
+            --codebase-url "${{ steps.meta.outputs.release_asset_url }}" \
+            --out-dir "$PWD/dist/chromium" \
+            --browser-binary "$(command -v chromium)"
+
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" "dist/chromium/${{ steps.meta.outputs.crx_name }}" --clobber
+
+      - name: Prepare GitHub Pages content
+        run: |
+          set -euo pipefail
+          mkdir -p site/chromium
+          cp dist/chromium/updates.xml site/chromium/updates.xml
+          cp dist/chromium/extension-settings.json site/chromium/extension-settings.json
+          touch site/.nojekyll
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy-pages:
+    name: Deploy GitHub Pages
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

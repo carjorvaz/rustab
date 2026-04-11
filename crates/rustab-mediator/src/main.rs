@@ -233,7 +233,8 @@ fn detect_browser() -> String {
     "unknown".into()
 }
 
-/// Read the parent process name from /proc (Linux).
+/// Read the parent process name.
+#[cfg(target_os = "linux")]
 fn parent_process_name() -> Option<String> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     let ppid: u32 = status
@@ -243,6 +244,37 @@ fn parent_process_name() -> Option<String> {
         .and_then(|s| s.parse().ok())?;
     let comm = std::fs::read_to_string(format!("/proc/{ppid}/comm")).ok()?;
     Some(comm.trim().to_string())
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn parent_process_name() -> Option<String> {
+    unsafe extern "C" {
+        fn getppid() -> i32;
+    }
+
+    let ppid = unsafe { getppid() };
+    if ppid <= 0 {
+        return None;
+    }
+
+    let ppid = ppid.to_string();
+    for ps in ["/bin/ps", "/usr/bin/ps", "ps"] {
+        let output = match std::process::Command::new(ps)
+            .args(["-o", "comm=", "-p"])
+            .arg(&ppid)
+            .output()
+        {
+            Ok(output) if output.status.success() => output,
+            _ => continue,
+        };
+
+        let command = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !command.is_empty() {
+            return Some(command);
+        }
+    }
+
+    None
 }
 
 /// Remove socket files for dead processes.

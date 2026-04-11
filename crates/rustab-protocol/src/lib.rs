@@ -29,7 +29,8 @@ pub async fn read_message<R: AsyncReadExt + Unpin>(
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).await?;
 
-    serde_json::from_slice(&buf).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    serde_json::from_slice(&buf)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 /// Write a native-messaging-framed JSON message.
@@ -94,9 +95,22 @@ pub fn parse_tab_id(s: &str) -> Option<(&str, u64)> {
     Some((prefix, id))
 }
 
-/// Check if a PID is alive (Linux-specific via /proc).
+#[cfg(unix)]
+unsafe extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+
+/// Check if a PID is alive.
+/// `kill(pid, 0)` works on Unix even when `/proc` is absent (for example macOS).
 pub fn is_pid_alive(pid: u32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
+    if pid > i32::MAX as u32 {
+        return false;
+    }
+
+    match unsafe { kill(pid as i32, 0) } {
+        0 => true,
+        _ => matches!(std::io::Error::last_os_error().raw_os_error(), Some(1)),
+    }
 }
 
 /// Browser info for native messaging manifest installation.
@@ -107,51 +121,176 @@ pub struct BrowserManifestInfo {
     pub is_firefox: bool,
 }
 
-/// All supported browsers and their manifest paths (Linux).
+/// Chromium extension ID derived from the extension manifest `key`.
+pub const CHROME_EXTENSION_ID: &str = "nddbmnpippfilnjoebpcnfbpebnllbgo";
 pub const BROWSERS: &[BrowserManifestInfo] = &[
+    #[cfg(target_os = "linux")]
     BrowserManifestInfo {
         name: "chrome",
         config_dir: ".config/google-chrome",
         manifest_subdir: "NativeMessagingHosts",
         is_firefox: false,
     },
+    #[cfg(target_os = "macos")]
+    BrowserManifestInfo {
+        name: "chrome",
+        config_dir: "Library/Application Support/Google/Chrome",
+        manifest_subdir: "NativeMessagingHosts",
+        is_firefox: false,
+    },
+    #[cfg(target_os = "linux")]
     BrowserManifestInfo {
         name: "brave",
         config_dir: ".config/BraveSoftware/Brave-Browser",
         manifest_subdir: "NativeMessagingHosts",
         is_firefox: false,
     },
+    #[cfg(target_os = "macos")]
+    BrowserManifestInfo {
+        name: "brave",
+        config_dir: "Library/Application Support/BraveSoftware/Brave-Browser",
+        manifest_subdir: "NativeMessagingHosts",
+        is_firefox: false,
+    },
+    #[cfg(target_os = "linux")]
     BrowserManifestInfo {
         name: "chromium",
         config_dir: ".config/chromium",
         manifest_subdir: "NativeMessagingHosts",
         is_firefox: false,
     },
+    #[cfg(target_os = "macos")]
+    BrowserManifestInfo {
+        name: "chromium",
+        config_dir: "Library/Application Support/Chromium",
+        manifest_subdir: "NativeMessagingHosts",
+        is_firefox: false,
+    },
+    #[cfg(target_os = "linux")]
     BrowserManifestInfo {
         name: "edge",
         config_dir: ".config/microsoft-edge",
         manifest_subdir: "NativeMessagingHosts",
         is_firefox: false,
     },
+    #[cfg(target_os = "macos")]
+    BrowserManifestInfo {
+        name: "edge",
+        config_dir: "Library/Application Support/Microsoft Edge",
+        manifest_subdir: "NativeMessagingHosts",
+        is_firefox: false,
+    },
+    #[cfg(target_os = "linux")]
     BrowserManifestInfo {
         name: "vivaldi",
         config_dir: ".config/vivaldi",
         manifest_subdir: "NativeMessagingHosts",
         is_firefox: false,
     },
+    #[cfg(target_os = "macos")]
+    BrowserManifestInfo {
+        name: "vivaldi",
+        config_dir: "Library/Application Support/Vivaldi",
+        manifest_subdir: "NativeMessagingHosts",
+        is_firefox: false,
+    },
+    #[cfg(target_os = "linux")]
     BrowserManifestInfo {
         name: "firefox",
         config_dir: ".mozilla",
         manifest_subdir: "native-messaging-hosts",
         is_firefox: true,
     },
+    #[cfg(target_os = "macos")]
+    BrowserManifestInfo {
+        name: "firefox",
+        config_dir: "Library/Application Support/Mozilla",
+        manifest_subdir: "NativeMessagingHosts",
+        is_firefox: true,
+    },
+    #[cfg(target_os = "linux")]
     BrowserManifestInfo {
         name: "zen",
         config_dir: ".zen",
         manifest_subdir: "native-messaging-hosts",
         is_firefox: true,
     },
+    #[cfg(target_os = "macos")]
+    BrowserManifestInfo {
+        name: "zen",
+        config_dir: "Library/Application Support/zen",
+        manifest_subdir: "NativeMessagingHosts",
+        is_firefox: true,
+    },
 ];
 
 pub const NATIVE_HOST_NAME: &str = "rustab_mediator";
 pub const FIREFOX_EXTENSION_ID: &str = "rustab@rustab.dev";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_process_is_alive() {
+        assert!(is_pid_alive(std::process::id()));
+    }
+
+    #[test]
+    fn impossible_pid_is_not_alive() {
+        assert!(!is_pid_alive(u32::MAX));
+    }
+
+    #[test]
+    fn parses_socket_names() {
+        assert_eq!(
+            parse_socket_name("brave-123.sock"),
+            Some(("brave".to_string(), 123))
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_browser_paths_match_expected_locations() {
+        let firefox = BROWSERS
+            .iter()
+            .find(|browser| browser.name == "firefox")
+            .unwrap();
+        let brave = BROWSERS
+            .iter()
+            .find(|browser| browser.name == "brave")
+            .unwrap();
+        let zen = BROWSERS
+            .iter()
+            .find(|browser| browser.name == "zen")
+            .unwrap();
+
+        assert_eq!(brave.config_dir, ".config/BraveSoftware/Brave-Browser");
+        assert_eq!(firefox.config_dir, ".mozilla");
+        assert_eq!(zen.manifest_subdir, "native-messaging-hosts");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_browser_paths_match_expected_locations() {
+        let firefox = BROWSERS
+            .iter()
+            .find(|browser| browser.name == "firefox")
+            .unwrap();
+        let brave = BROWSERS
+            .iter()
+            .find(|browser| browser.name == "brave")
+            .unwrap();
+        let zen = BROWSERS
+            .iter()
+            .find(|browser| browser.name == "zen")
+            .unwrap();
+
+        assert_eq!(
+            brave.config_dir,
+            "Library/Application Support/BraveSoftware/Brave-Browser"
+        );
+        assert_eq!(firefox.config_dir, "Library/Application Support/Mozilla");
+        assert_eq!(zen.manifest_subdir, "NativeMessagingHosts");
+    }
+}

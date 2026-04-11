@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rustab_protocol::{
     browser_prefix, is_pid_alive, parse_socket_name, parse_tab_id, read_message, socket_dir,
-    write_message, BROWSERS, FIREFOX_EXTENSION_ID, NATIVE_HOST_NAME,
+    write_message, BROWSERS, CHROME_EXTENSION_ID, FIREFOX_EXTENSION_ID, NATIVE_HOST_NAME,
 };
 use serde_json::{json, Value};
 use std::io::{BufRead, IsTerminal};
@@ -67,7 +67,9 @@ enum Command {
 async fn main() {
     // Reset SIGPIPE so piping to `head` etc. exits cleanly
     // instead of panicking (Rust sets SIG_IGN by default).
-    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL); }
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
 
     let cli = Cli::parse();
 
@@ -267,10 +269,7 @@ async fn cmd_close(tab_ids: Vec<String>) -> i32 {
     for id_str in &tab_ids {
         match parse_tab_id(id_str) {
             Some((prefix, id)) => {
-                by_browser
-                    .entry(prefix.to_string())
-                    .or_default()
-                    .push(id);
+                by_browser.entry(prefix.to_string()).or_default().push(id);
             }
             None => {
                 eprintln!("Invalid tab ID format: {id_str} (expected prefix.number, e.g. c.123)");
@@ -413,12 +412,8 @@ fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<Strin
         }
     };
 
-    let chrome_ext_id = chrome_extension_id.unwrap_or_else(|| {
-        eprintln!("Note: No --chrome-extension-id provided.");
-        eprintln!("      After loading the Chrome extension, find its ID at chrome://extensions");
-        eprintln!("      and re-run: rustab install --chrome-extension-id <ID>");
-        "nddbmnpippfilnjoebpcnfbpebnllbgo".to_string()
-    });
+    let using_default_chrome_extension_id = chrome_extension_id.is_none();
+    let chrome_ext_id = chrome_extension_id.unwrap_or_else(|| CHROME_EXTENSION_ID.to_string());
 
     let mut installed = 0;
 
@@ -456,13 +451,16 @@ fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<Strin
     }
 
     println!("\nInstalled manifests for {installed} browser(s).");
+    if using_default_chrome_extension_id {
+        println!("Using built-in Chromium extension ID: {CHROME_EXTENSION_ID}");
+        println!("Pass --chrome-extension-id to override it for a custom unpacked build.");
+    }
     println!("Next steps:");
     println!(
-        "  1. Install the browser extension (load unpacked from extensions/chrome or extensions/firefox)"
+        "  1. Install the browser extension (load unpacked from extensions/chrome or open the signed Firefox XPI)"
     );
-    println!("  2. If using Chrome/Brave, note the extension ID and re-run with --chrome-extension-id <ID>");
-    println!("  3. Restart your browser");
-    println!("  4. Run `rustab clients` to verify the connection");
+    println!("  2. Restart your browser");
+    println!("  3. Run `rustab clients` to verify the connection");
 
     0
 }
