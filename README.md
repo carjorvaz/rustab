@@ -47,11 +47,12 @@ Add rustab as a flake input:
 }
 ```
 
-The flake provides five packages:
+The flake provides six packages:
 - `rustab` -- CLI + mediator binaries with native messaging manifests
 - `chrome-extension` -- unpacked Chromium extension directory
 - `firefox-extension` -- AMO-signed XPI for Firefox
 - `check-version-sync` -- helper for verifying release metadata stays aligned
+- `refresh-firefox-xpi` -- helper for re-signing and refreshing the checked-in Firefox XPI
 - `package-chromium-release` -- helper for building a signed CRX + update feed bundle
 
 The `rustab` package also exposes passthru metadata:
@@ -151,7 +152,7 @@ For Home Manager + Brave on Linux, that policy can be installed through the usua
 
 Rustab includes a tag-driven GitHub Actions workflow at `.github/workflows/release.yml` that automates the clean GitHub-hosted path:
 
-- verifies that Cargo, Chromium, Firefox, and the committed signed Firefox XPI all agree on `X.Y.Z`
+- verifies that Cargo, Chromium, Firefox, and the committed signed Firefox XPI all agree on `X.Y.Z`, and that the signed Firefox XPI still matches the checked-in Firefox extension source
 - runs tests and flake checks
 - signs `rustab-<version>.crx`
 - signs `rustab@rustab.dev.xpi`
@@ -217,11 +218,8 @@ The flake includes a dev shell with Rust toolchain and `web-ext` for Firefox ext
 ```sh
 nix run .#check-version-sync
 
-# Sign the Firefox extension after changes (requires AMO API credentials in .web-ext-credentials)
-source .web-ext-credentials
-web-ext sign --source-dir=extensions/firefox --channel=unlisted \
-  --api-key=$WEB_EXT_API_KEY --api-secret=$WEB_EXT_API_SECRET
-cp web-ext-artifacts/*.xpi extensions/firefox-signed/rustab@rustab.dev.xpi
+# Refresh the checked-in signed Firefox XPI after extension changes
+nix run .#refresh-firefox-xpi
 
 # Re-run the consistency check before tagging a release
 nix run .#check-version-sync

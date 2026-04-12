@@ -12,6 +12,12 @@ CARGO_TOML = REPO_ROOT / "Cargo.toml"
 CHROME_MANIFEST = REPO_ROOT / "extensions" / "chrome" / "manifest.json"
 FIREFOX_MANIFEST = REPO_ROOT / "extensions" / "firefox" / "manifest.json"
 SIGNED_FIREFOX_XPI = REPO_ROOT / "extensions" / "firefox-signed" / "rustab@rustab.dev.xpi"
+FIREFOX_EXTENSION_FILES = [
+    "manifest.json",
+    "background.js",
+    "icon48.png",
+    "icon128.png",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,6 +62,11 @@ def read_signed_firefox_manifest(path: Path) -> dict:
         return json.loads(archive.read("manifest.json"))
 
 
+def signed_firefox_file_bytes(path: Path, relative_name: str) -> bytes:
+    with zipfile.ZipFile(path) as archive:
+        return archive.read(relative_name)
+
+
 def firefox_addon_id(manifest: dict) -> str:
     return manifest["browser_specific_settings"]["gecko"]["id"]
 
@@ -88,6 +99,24 @@ def main() -> int:
             "Signed Firefox XPI has addon id "
             f"{signed_firefox_id!r}, expected {firefox_manifest_id!r}"
         )
+
+    for relative_name in FIREFOX_EXTENSION_FILES:
+        source_path = FIREFOX_MANIFEST.parent / relative_name
+        if relative_name == "manifest.json":
+            source_json = json.loads(source_path.read_text())
+            signed_json = json.loads(signed_firefox_file_bytes(SIGNED_FIREFOX_XPI, relative_name))
+            if signed_json != source_json:
+                mismatches.append(
+                    f"Signed Firefox XPI {relative_name} differs from extensions/firefox/{relative_name}"
+                )
+            continue
+
+        source_bytes = source_path.read_bytes()
+        signed_bytes = signed_firefox_file_bytes(SIGNED_FIREFOX_XPI, relative_name)
+        if signed_bytes != source_bytes:
+            mismatches.append(
+                f"Signed Firefox XPI {relative_name} differs from extensions/firefox/{relative_name}"
+            )
 
     if mismatches:
         for mismatch in mismatches:

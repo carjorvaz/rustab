@@ -102,15 +102,10 @@ jobs:
             exit 1
           fi
 
-          rm -rf web-ext-artifacts
-          nix develop -c web-ext sign \
-            --source-dir=extensions/firefox \
-            --channel=unlisted \
-            --api-key="$WEB_EXT_API_KEY" \
-            --api-secret="$WEB_EXT_API_SECRET"
-
+          nix shell .#refresh-firefox-xpi -c refresh-firefox-xpi
           mkdir -p dist/firefox
-          cp web-ext-artifacts/*.xpi "dist/firefox/${{ steps.meta.outputs.firefox_xpi_name }}"
+          cp "extensions/firefox-signed/${{ steps.meta.outputs.firefox_xpi_name }}" \
+            "dist/firefox/${{ steps.meta.outputs.firefox_xpi_name }}"
 
       - name: Publish release assets
         env:

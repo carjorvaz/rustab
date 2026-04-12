@@ -16,6 +16,17 @@
             exec python3 ${self}/scripts/package_chromium_release.py "$@"
           '';
         };
+      refreshFirefoxXpiFor = pkgs:
+        pkgs.writeShellApplication {
+          name = "refresh-firefox-xpi";
+          runtimeInputs = [
+            pkgs.bash
+            pkgs.coreutils
+            pkgs.python3
+            pkgs.web-ext
+          ];
+          text = builtins.readFile ./scripts/refresh_firefox_xpi.sh;
+        };
       checkVersionSyncFor = pkgs:
         pkgs.writeShellApplication {
           name = "check-version-sync";
@@ -75,6 +86,13 @@
 
       apps = forAllSystems (_: pkgs: {
         package-chromium-release = appFor pkgs;
+        refresh-firefox-xpi = {
+          type = "app";
+          program = "${refreshFirefoxXpiFor pkgs}/bin/refresh-firefox-xpi";
+          meta = {
+            description = "Refresh Rustab's checked-in signed Firefox XPI";
+          };
+        };
         check-version-sync = {
           type = "app";
           program = "${checkVersionSyncFor pkgs}/bin/check-version-sync";
@@ -86,6 +104,7 @@
 
       packages = forAllSystems (system: pkgs: rec {
         package-chromium-release = packageChromiumReleaseFor pkgs;
+        refresh-firefox-xpi = refreshFirefoxXpiFor pkgs;
         check-version-sync = checkVersionSyncFor pkgs;
 
         chrome-extension = pkgs.stdenvNoCC.mkDerivation {
@@ -184,6 +203,7 @@
           check-version-sync
           touch $out
         '';
+        refresh-firefox-xpi = self.packages.${system}.refresh-firefox-xpi;
         package-chromium-release = self.packages.${system}.package-chromium-release;
         chrome-extension = self.packages.${system}.chrome-extension;
         firefox-extension = self.packages.${system}.firefox-extension;
