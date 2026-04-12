@@ -92,6 +92,8 @@ On macOS, Chromium browsers still require a one-time `Load unpacked` step becaus
 
 Rustab also installs the native messaging host manifest for Brave into Chromium-family fallback locations on macOS. This is intentional: current Brave releases do not always discover `NativeMessagingHosts` from their branded `BraveSoftware/Brave-Browser` application-support directory, but they do reliably pick up the standard Chromium user paths.
 
+That means `rustab install` may report multiple manifest locations for a single Brave profile on macOS. This is expected.
+
 ### Managed Chromium Distribution
 
 For fully declarative Chromium installation on macOS or managed Chromium installation on Linux, package a signed CRX and a static update manifest:

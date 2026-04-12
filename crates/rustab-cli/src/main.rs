@@ -415,7 +415,8 @@ fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<Strin
     let using_default_chrome_extension_id = chrome_extension_id.is_none();
     let chrome_ext_id = chrome_extension_id.unwrap_or_else(|| CHROME_EXTENSION_ID.to_string());
 
-    let mut installed = 0;
+    let mut installed_locations = 0;
+    let mut installed_browsers = 0;
 
     for browser in BROWSERS {
         let config_path = PathBuf::from(&home).join(browser.config_dir);
@@ -428,6 +429,8 @@ fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<Strin
         } else {
             build_chrome_manifest(&mediator_abs, &chrome_ext_id)
         };
+
+        let mut wrote_manifest_for_browser = false;
 
         for manifest_dir in manifest_target_dirs(Path::new(&home), browser) {
             if let Err(e) = std::fs::create_dir_all(&manifest_dir) {
@@ -443,19 +446,26 @@ fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<Strin
             match std::fs::write(&manifest_path, &manifest) {
                 Ok(()) => {
                     println!("{}: installed {}", browser.name, manifest_path.display());
-                    installed += 1;
+                    wrote_manifest_for_browser = true;
+                    installed_locations += 1;
                 }
                 Err(e) => eprintln!("{}: failed to write manifest: {e}", browser.name),
             }
         }
+
+        if wrote_manifest_for_browser {
+            installed_browsers += 1;
+        }
     }
 
-    if installed == 0 {
+    if installed_locations == 0 {
         eprintln!("No browsers detected. Check that browser config directories exist.");
         return 1;
     }
 
-    println!("\nInstalled manifests for {installed} browser(s).");
+    println!(
+        "\nInstalled manifests at {installed_locations} location(s) across {installed_browsers} browser(s)."
+    );
     if using_default_chrome_extension_id {
         println!("Using built-in Chromium extension ID: {CHROME_EXTENSION_ID}");
         println!("Pass --chrome-extension-id to override it for a custom unpacked build.");
