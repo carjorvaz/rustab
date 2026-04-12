@@ -47,10 +47,11 @@ Add rustab as a flake input:
 }
 ```
 
-The flake provides four packages:
+The flake provides five packages:
 - `rustab` -- CLI + mediator binaries with native messaging manifests
 - `chrome-extension` -- unpacked Chromium extension directory
 - `firefox-extension` -- AMO-signed XPI for Firefox
+- `check-version-sync` -- helper for verifying release metadata stays aligned
 - `package-chromium-release` -- helper for building a signed CRX + update feed bundle
 
 The `rustab` package also exposes passthru metadata:
@@ -117,7 +118,7 @@ If you want `updates.xml` to live at one URL and the `.crx` to live somewhere el
 nix run .#package-chromium-release -- \
   --key /secure/path/rustab-chromium.pem \
   --base-url https://carjorvaz.github.io/rustab/chromium \
-  --codebase-url https://github.com/carjorvaz/rustab/releases/download/v0.1.0/rustab-0.1.0.crx
+  --codebase-url https://github.com/carjorvaz/rustab/releases/download/vX.Y.Z/rustab-X.Y.Z.crx
 ```
 
 That split is a good fit for GitHub Pages + GitHub Releases: keep `updates.xml` and `extension-settings.json` on Pages, keep the versioned CRX on Releases.
@@ -150,20 +151,24 @@ For Home Manager + Brave on Linux, that policy can be installed through the usua
 
 Rustab includes a tag-driven GitHub Actions workflow at `.github/workflows/release.yml` that automates the clean GitHub-hosted path:
 
-- verifies that the pushed tag `vX.Y.Z` matches `extensions/chrome/manifest.json`
+- verifies that Cargo, Chromium, Firefox, and the committed signed Firefox XPI all agree on `X.Y.Z`
 - runs tests and flake checks
 - signs `rustab-<version>.crx`
-- uploads the CRX to GitHub Releases
+- signs `rustab@rustab.dev.xpi`
+- uploads both browser artifacts to GitHub Releases
 - deploys `updates.xml` and `extension-settings.json` to GitHub Pages under `/chromium/`
 
 To use it:
 
 1. Enable GitHub Pages for the repository with `GitHub Actions` as the source.
 2. Add the repository secret `CHROMIUM_EXTENSION_KEY_PEM` containing the private key that matches the public key embedded in `extensions/chrome/manifest.json`.
-3. Optionally set the repository variable `RUSTAB_CHROMIUM_BASE_URL` if you want a custom Pages or custom-domain URL. Otherwise the workflow defaults to `https://<owner>.github.io/<repo>/chromium`.
-4. Push a tag like `v0.1.0`.
+3. Add the repository secrets `WEB_EXT_API_KEY` and `WEB_EXT_API_SECRET` for AMO unlisted signing.
+4. Optionally set the repository variable `RUSTAB_CHROMIUM_BASE_URL` if you want a custom Pages or custom-domain URL. Otherwise the workflow defaults to `https://<owner>.github.io/<repo>/chromium`.
+5. Push a tag like `vX.Y.Z`.
 
 The workflow does not require a `gh-pages` branch. It deploys Pages directly from the workflow artifact, which keeps the repository history free of generated release files.
+
+For normal push and pull request validation, `.github/workflows/ci.yml` runs `nix flake check` without needing signing secrets.
 
 #### Firefox / Zen
 
@@ -210,11 +215,16 @@ rustab clients                             # show connected browsers
 The flake includes a dev shell with Rust toolchain and `web-ext` for Firefox extension signing:
 
 ```sh
+nix run .#check-version-sync
+
 # Sign the Firefox extension after changes (requires AMO API credentials in .web-ext-credentials)
 source .web-ext-credentials
 web-ext sign --source-dir=extensions/firefox --channel=unlisted \
   --api-key=$WEB_EXT_API_KEY --api-secret=$WEB_EXT_API_SECRET
 cp web-ext-artifacts/*.xpi extensions/firefox-signed/rustab@rustab.dev.xpi
+
+# Re-run the consistency check before tagging a release
+nix run .#check-version-sync
 ```
 
 The Chromium release helper also works well from the dev shell:

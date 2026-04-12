@@ -29,19 +29,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="$(python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          manifest = json.loads(Path("extensions/chrome/manifest.json").read_text())
-          print(manifest["version"])
-          PY
-          )"
+          version="$(python3 scripts/check_versions.py --print-version)"
 
           tag="${GITHUB_REF_NAME}"
           tag_version="${tag#v}"
           if [ "$tag_version" != "$version" ]; then
-            echo "tag ${tag} does not match extensions/chrome/manifest.json version ${version}" >&2
+            echo "tag ${tag} does not match repository version ${version}" >&2
             exit 1
           fi
 
@@ -56,11 +49,13 @@ jobs:
 
           pages_base_url="${PAGES_BASE_URL_OVERRIDE:-$default_pages_base_url}"
           crx_name="rustab-${version}.crx"
+          firefox_xpi_name="rustab@rustab.dev.xpi"
           release_asset_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${tag}/${crx_name}"
 
           {
             echo "version=${version}"
             echo "crx_name=${crx_name}"
+            echo "firefox_xpi_name=${firefox_xpi_name}"
             echo "pages_base_url=${pages_base_url}"
             echo "release_asset_url=${release_asset_url}"
           } >> "$GITHUB_OUTPUT"
@@ -96,14 +91,38 @@ jobs:
             --browser-binary "$(command -v chromium)" \
             --browser-arg=--no-sandbox
 
-      - name: Publish release asset
+      - name: Package signed Firefox release XPI
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEB_EXT_API_KEY}" ] || [ -z "${WEB_EXT_API_SECRET}" ]; then
+            echo "repository secrets WEB_EXT_API_KEY and WEB_EXT_API_SECRET are required" >&2
+            exit 1
+          fi
+
+          rm -rf web-ext-artifacts
+          nix develop -c web-ext sign \
+            --source-dir=extensions/firefox \
+            --channel=unlisted \
+            --api-key="$WEB_EXT_API_KEY" \
+            --api-secret="$WEB_EXT_API_SECRET"
+
+          mkdir -p dist/firefox
+          cp web-ext-artifacts/*.xpi "dist/firefox/${{ steps.meta.outputs.firefox_xpi_name }}"
+
+      - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
             gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
-          gh release upload "$GITHUB_REF_NAME" "dist/chromium/${{ steps.meta.outputs.crx_name }}" --clobber
+          gh release upload "$GITHUB_REF_NAME" \
+            "dist/chromium/${{ steps.meta.outputs.crx_name }}" \
+            "dist/firefox/${{ steps.meta.outputs.firefox_xpi_name }}" \
+            --clobber
 
       - name: Prepare GitHub Pages content
         run: |

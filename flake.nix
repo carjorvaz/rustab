@@ -5,12 +5,23 @@
 
   outputs = { nixpkgs, self, ... }:
     let
+      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+      chromeManifest = builtins.fromJSON (builtins.readFile ./extensions/chrome/manifest.json);
+      firefoxManifest = builtins.fromJSON (builtins.readFile ./extensions/firefox/manifest.json);
       packageChromiumReleaseFor = pkgs:
         pkgs.writeShellApplication {
           name = "package-chromium-release";
           runtimeInputs = [ pkgs.python3 ];
           text = ''
             exec python3 ${self}/scripts/package_chromium_release.py "$@"
+          '';
+        };
+      checkVersionSyncFor = pkgs:
+        pkgs.writeShellApplication {
+          name = "check-version-sync";
+          runtimeInputs = [ pkgs.python3 ];
+          text = ''
+            exec python3 ${self}/scripts/check_versions.py "$@"
           '';
         };
       appFor = pkgs: {
@@ -20,9 +31,15 @@
           description = "Package rustab's Chromium extension for managed distribution";
         };
       };
-      version = "0.1.0";
+      version =
+        let
+          cargoVersion = cargoToml.workspace.package.version;
+        in
+        assert chromeManifest.version == cargoVersion;
+        assert firefoxManifest.version == cargoVersion;
+        cargoVersion;
       chromeExtensionId = "nddbmnpippfilnjoebpcnfbpebnllbgo";
-      firefoxExtensionId = "rustab@rustab.dev";
+      firefoxExtensionId = firefoxManifest.browser_specific_settings.gecko.id;
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -58,10 +75,18 @@
 
       apps = forAllSystems (_: pkgs: {
         package-chromium-release = appFor pkgs;
+        check-version-sync = {
+          type = "app";
+          program = "${checkVersionSyncFor pkgs}/bin/check-version-sync";
+          meta = {
+            description = "Verify Rustab's version stays in sync across release artifacts";
+          };
+        };
       });
 
       packages = forAllSystems (system: pkgs: rec {
         package-chromium-release = packageChromiumReleaseFor pkgs;
+        check-version-sync = checkVersionSyncFor pkgs;
 
         chrome-extension = pkgs.stdenvNoCC.mkDerivation {
           pname = "rustab-chrome-extension";
@@ -153,6 +178,12 @@
       });
 
       checks = forAllSystems (system: pkgs: {
+        version-sync = pkgs.runCommand "rustab-version-sync" {
+          nativeBuildInputs = [ self.packages.${system}.check-version-sync ];
+        } ''
+          check-version-sync
+          touch $out
+        '';
         package-chromium-release = self.packages.${system}.package-chromium-release;
         chrome-extension = self.packages.${system}.chrome-extension;
         firefox-extension = self.packages.${system}.firefox-extension;
