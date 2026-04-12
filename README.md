@@ -96,7 +96,7 @@ That means `rustab install` may report multiple manifest locations for a single 
 
 ### Managed Chromium Distribution
 
-For fully declarative Chromium installation on macOS or managed Chromium installation on Linux, package a signed CRX and a static update manifest:
+For managed Chromium installation on Linux, or for enterprise-managed Chromium installation on macOS, package a signed CRX and a static update manifest:
 
 ```sh
 nix run .#package-chromium-release -- \
@@ -144,7 +144,7 @@ That returns:
 }
 ```
 
-For Home Manager + Brave on Linux, that policy can be installed through the usual Chromium managed policy paths. For nix-darwin + Brave on macOS, serialize the same `ExtensionSettings` structure into `com.brave.Browser.plist` under `/Library/Managed Preferences/<user>/`.
+For Home Manager + Brave on Linux, that policy can be installed through the usual Chromium managed policy paths. For nix-darwin + Brave on macOS, serialize the same `ExtensionSettings` structure into `com.brave.Browser.plist` under `/Library/Managed Preferences/<user>/`, but only expect off-store self-hosted installs to work when the browser is enterprise-managed. On unmanaged macOS Brave, the supported Rustab path remains a one-time `Load unpacked` step for the extension plus the declarative native-host setup described above.
 
 #### Automated GitHub Releases + Pages
 
@@ -186,7 +186,7 @@ cargo build --release
 ```
 
 Then load the browser extension:
-- **Chrome/Brave**: Go to `chrome://extensions`, enable Developer Mode, "Load unpacked" from `extensions/chrome/`
+- **Chrome/Brave**: Go to `chrome://extensions` or `brave://extensions`, enable Developer Mode, and "Load unpacked" from `extensions/chrome/`
 - **Firefox**: Open `extensions/firefox-signed/rustab@rustab.dev.xpi` in Firefox to install
 
 `rustab install` uses the built-in Chromium extension ID by default. If you're testing a custom unpacked Chromium extension build with a different ID, pass `--chrome-extension-id <ID>`.
