@@ -2,7 +2,11 @@
 
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+default_repo_root="$PWD"
+if [ ! -f "$default_repo_root/Cargo.toml" ] || [ ! -d "$default_repo_root/extensions/firefox" ]; then
+  default_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+repo_root="${RUSTAB_REPO_ROOT:-$default_repo_root}"
 credentials_path="${HOME}/.web-ext-credentials"
 
 usage() {
