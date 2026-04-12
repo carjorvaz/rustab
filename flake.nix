@@ -25,7 +25,9 @@
             pkgs.python3
             pkgs.web-ext
           ];
-          text = builtins.readFile ./scripts/refresh_firefox_xpi.sh;
+          text = ''
+            exec ${pkgs.bash}/bin/bash ${self}/scripts/refresh_firefox_xpi.sh "$@"
+          '';
         };
       checkVersionSyncFor = pkgs:
         pkgs.writeShellApplication {

@@ -54,17 +54,51 @@ if [ -z "${WEB_EXT_API_KEY:-}" ] || [ -z "${WEB_EXT_API_SECRET:-}" ]; then
   exit 1
 fi
 
+export WEB_EXT_API_KEY WEB_EXT_API_SECRET
+
 cd "$repo_root"
 rm -rf web-ext-artifacts
 
-web-ext sign \
+firefox_addon_id="$(python3 - <<'PY'
+import json
+from pathlib import Path
+manifest = json.loads(Path("extensions/firefox/manifest.json").read_text())
+print(manifest["browser_specific_settings"]["gecko"]["id"])
+PY
+)"
+
+firefox_version="$(python3 - <<'PY'
+import json
+from pathlib import Path
+manifest = json.loads(Path("extensions/firefox/manifest.json").read_text())
+print(manifest["version"])
+PY
+)"
+
+webext_log="$(mktemp)"
+trap 'rm -f "$webext_log"' EXIT
+
+if web-ext sign \
   --source-dir=extensions/firefox \
   --channel=unlisted \
   --api-key="$WEB_EXT_API_KEY" \
-  --api-secret="$WEB_EXT_API_SECRET"
+  --api-secret="$WEB_EXT_API_SECRET" \
+  >"$webext_log" 2>&1; then
+  cat "$webext_log"
+  cp web-ext-artifacts/*.xpi extensions/firefox-signed/rustab@rustab.dev.xpi
+else
+  cat "$webext_log" >&2
+  if grep -Eq 'Version .* already exists\.|This upload has already been submitted\.' "$webext_log"; then
+    python3 scripts/download_amo_signed_xpi.py \
+      --addon-id "$firefox_addon_id" \
+      --version "$firefox_version" \
+      --out extensions/firefox-signed/rustab@rustab.dev.xpi
+  else
+    exit 1
+  fi
+fi
 
 mkdir -p extensions/firefox-signed
-cp web-ext-artifacts/*.xpi extensions/firefox-signed/rustab@rustab.dev.xpi
 python3 scripts/check_versions.py
 
 echo "refreshed extensions/firefox-signed/rustab@rustab.dev.xpi"

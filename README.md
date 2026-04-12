@@ -225,6 +225,8 @@ nix run .#refresh-firefox-xpi
 nix run .#check-version-sync
 ```
 
+If the same Firefox version has already been submitted to AMO and is already public, `refresh-firefox-xpi` will download that existing signed XPI instead of failing on a duplicate-version error. That makes reruns and release recovery much calmer.
+
 The Chromium release helper also works well from the dev shell:
 
 ```sh
