@@ -30,7 +30,7 @@ $ rustab list | grep Reddit | rustab close
 Browser extension  <--native messaging (stdio)-->  rustab-mediator  <--Unix socket-->  rustab CLI
 ```
 
-Each browser instance gets its own mediator process and Unix socket at `/tmp/rustab-{user}/{browser}-{pid}.sock`. The CLI discovers mediators by scanning this directory and filtering out stale sockets (dead PIDs).
+Each browser instance gets its own mediator process and Unix socket at `/tmp/rustab-{uid}/{browser}-{pid}.sock`. The CLI discovers mediators by scanning this directory and filtering out stale sockets (dead PIDs).
 
 Tab IDs are prefixed by browser: `c.123` (Chrome), `b.456` (Brave), `f.789` (Firefox), etc.
 
@@ -89,6 +89,8 @@ in {
 ```
 
 On macOS, Chromium browsers still require a one-time `Load unpacked` step because fully declarative installation would need a packaged CRX and hosted update manifest. A clean approach is to expose the unpacked extension at a stable path in your home directory and load it once from `brave://extensions`.
+
+Rustab also installs the native messaging host manifest for Brave into Chromium-family fallback locations on macOS. This is intentional: current Brave releases do not always discover `NativeMessagingHosts` from their branded `BraveSoftware/Brave-Browser` application-support directory, but they do reliably pick up the standard Chromium user paths.
 
 ### Managed Chromium Distribution
 

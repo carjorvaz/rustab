@@ -5,7 +5,7 @@ use rustab_protocol::{
 };
 use serde_json::{json, Value};
 use std::io::{BufRead, IsTerminal};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::net::UnixStream;
 
 #[derive(Parser)]
@@ -423,25 +423,30 @@ fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<Strin
             continue;
         }
 
-        let manifest_dir = config_path.join(browser.manifest_subdir);
-        if let Err(e) = std::fs::create_dir_all(&manifest_dir) {
-            eprintln!("{}: failed to create manifest dir: {e}", browser.name);
-            continue;
-        }
-
         let manifest = if browser.is_firefox {
             build_firefox_manifest(&mediator_abs)
         } else {
             build_chrome_manifest(&mediator_abs, &chrome_ext_id)
         };
 
-        let manifest_path = manifest_dir.join(format!("{NATIVE_HOST_NAME}.json"));
-        match std::fs::write(&manifest_path, manifest) {
-            Ok(()) => {
-                println!("{}: installed {}", browser.name, manifest_path.display());
-                installed += 1;
+        for manifest_dir in manifest_target_dirs(Path::new(&home), browser) {
+            if let Err(e) = std::fs::create_dir_all(&manifest_dir) {
+                eprintln!(
+                    "{}: failed to create manifest dir {}: {e}",
+                    browser.name,
+                    manifest_dir.display()
+                );
+                continue;
             }
-            Err(e) => eprintln!("{}: failed to write manifest: {e}", browser.name),
+
+            let manifest_path = manifest_dir.join(format!("{NATIVE_HOST_NAME}.json"));
+            match std::fs::write(&manifest_path, &manifest) {
+                Ok(()) => {
+                    println!("{}: installed {}", browser.name, manifest_path.display());
+                    installed += 1;
+                }
+                Err(e) => eprintln!("{}: failed to write manifest: {e}", browser.name),
+            }
         }
     }
 
@@ -473,6 +478,28 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
     })
 }
 
+fn manifest_target_dirs(
+    home: &Path,
+    browser: &rustab_protocol::BrowserManifestInfo,
+) -> Vec<PathBuf> {
+    let mut dirs = vec![home.join(browser.config_dir).join(browser.manifest_subdir)];
+
+    #[cfg(target_os = "macos")]
+    if browser.name == "brave" && !browser.is_firefox {
+        // Brave on macOS does not reliably discover per-profile native
+        // messaging hosts from its branded application-support directory.
+        // Install fallback copies in the standard Chromium-family user paths
+        // so sideloaded Rustab works regardless of which lookup variant Brave
+        // uses on a given release.
+        dirs.push(home.join("Library/Application Support/Chromium/NativeMessagingHosts"));
+        dirs.push(home.join("Library/Application Support/Google/Chrome/NativeMessagingHosts"));
+    }
+
+    dirs.sort();
+    dirs.dedup();
+    dirs
+}
+
 fn build_chrome_manifest(mediator_path: &std::path::Path, extension_id: &str) -> String {
     serde_json::to_string_pretty(&json!({
         "name": NATIVE_HOST_NAME,
@@ -493,4 +520,29 @@ fn build_firefox_manifest(mediator_path: &std::path::Path) -> String {
         "allowed_extensions": [FIREFOX_EXTENSION_ID]
     }))
     .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn brave_mac_manifest_dirs_include_fallbacks() {
+        let brave = BROWSERS
+            .iter()
+            .find(|browser| browser.name == "brave")
+            .expect("brave browser metadata");
+
+        let dirs = manifest_target_dirs(Path::new("/Users/test"), brave);
+
+        assert_eq!(
+            dirs,
+            vec![
+                PathBuf::from("/Users/test/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"),
+                PathBuf::from("/Users/test/Library/Application Support/Chromium/NativeMessagingHosts"),
+                PathBuf::from("/Users/test/Library/Application Support/Google/Chrome/NativeMessagingHosts"),
+            ]
+        );
+    }
 }
