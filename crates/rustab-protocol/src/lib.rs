@@ -54,10 +54,19 @@ pub async fn write_message<W: AsyncWriteExt + Unpin>(
     Ok(())
 }
 
-/// Socket directory: `/tmp/rustab-{username}/`
+/// Socket directory: `/tmp/rustab-{uid}/`
 pub fn socket_dir() -> PathBuf {
-    let username = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
-    PathBuf::from(format!("/tmp/rustab-{username}"))
+    #[cfg(unix)]
+    {
+        let uid = unsafe { geteuid() };
+        return PathBuf::from(format!("/tmp/rustab-{uid}"));
+    }
+
+    #[cfg(not(unix))]
+    {
+        let username = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
+        PathBuf::from(format!("/tmp/rustab-{username}"))
+    }
 }
 
 /// Socket path for a given browser and PID: `/tmp/rustab-{user}/{browser}-{pid}.sock`
@@ -97,6 +106,7 @@ pub fn parse_tab_id(s: &str) -> Option<(&str, u64)> {
 
 #[cfg(unix)]
 unsafe extern "C" {
+    fn geteuid() -> u32;
     fn kill(pid: i32, sig: i32) -> i32;
 }
 
@@ -234,6 +244,13 @@ mod tests {
     #[test]
     fn current_process_is_alive() {
         assert!(is_pid_alive(std::process::id()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_dir_uses_effective_uid() {
+        let uid = unsafe { geteuid() };
+        assert_eq!(socket_dir(), PathBuf::from(format!("/tmp/rustab-{uid}")));
     }
 
     #[test]
