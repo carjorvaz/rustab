@@ -18,6 +18,7 @@ $ rustab list | grep Reddit | rustab close
 
 - List, close, activate, and open browser tabs from the CLI
 - Supports Chrome, Brave, Firefox, Chromium, Orion, Edge, Vivaldi, Zen
+- List read-only synced Orion tabs from local macOS state
 - Pipe-friendly: `rustab list | grep pattern | rustab close`
 - TSV and JSON output formats
 - Multiple concurrent browsers
@@ -206,6 +207,9 @@ Then load the browser extension:
 rustab list                                # list all tabs (TSV)
 rustab list --format json                  # list all tabs (JSON)
 rustab list --browser brave                # list tabs from Brave only
+rustab synced list --browser orion         # list synced Orion tabs cached locally on macOS
+rustab synced list --browser orion --archived # inspect the newest non-empty archived Orion sync snapshot
+rustab synced list --format json           # list synced tabs as JSON
 rustab close b.18452.42 b.18452.99         # close specific tabs
 rustab list | grep github | rustab close   # pipe pattern
 rustab activate c.18452.42                 # focus a tab
@@ -213,6 +217,8 @@ rustab open https://example.com            # open URL in the first responsive br
 rustab open -b firefox https://x.com       # open in specific browser
 rustab clients                             # show connected browsers, mediator PIDs, and sockets
 ```
+
+`rustab synced list` is intentionally read-only. Today it supports Orion on macOS by reading Orion's locally cached synced-tab plist data, and reports the raw device ID because Orion's cache does not appear to include a friendly device name. By default it reads the current sync state; `--archived` is a debugging escape hatch for the newest non-empty backup snapshot.
 
 ## Development
 

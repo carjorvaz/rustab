@@ -1,3 +1,5 @@
+mod synced;
+
 use clap::{Parser, Subcommand, ValueEnum};
 use rustab_protocol::{
     browser_prefix, format_tab_id, is_pid_alive, parse_socket_name, parse_tab_id, read_message,
@@ -7,6 +9,7 @@ use rustab_protocol::{
 use serde_json::{json, Value};
 use std::io::{BufRead, IsTerminal};
 use std::path::{Path, PathBuf};
+use synced::SyncedTab;
 use tokio::net::UnixStream;
 
 #[derive(Parser)]
@@ -53,6 +56,11 @@ enum Command {
     },
     /// Show connected browsers
     Clients,
+    /// List read-only synced tabs discovered from local browser state
+    Synced {
+        #[command(subcommand)]
+        command: SyncedCommand,
+    },
     /// Install native messaging manifests for detected browsers
     Install {
         /// Path to rustab-mediator binary (auto-detected if not specified)
@@ -61,6 +69,22 @@ enum Command {
         /// Chrome extension ID (for development/sideloaded extensions)
         #[arg(long)]
         chrome_extension_id: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum SyncedCommand {
+    /// List synced tabs
+    List {
+        /// Output format
+        #[arg(short, long, default_value = "tsv")]
+        format: OutputFormat,
+        /// Filter by browser (currently: orion)
+        #[arg(short, long)]
+        browser: Option<String>,
+        /// Read the newest non-empty archived sync snapshot instead of current state
+        #[arg(long)]
+        archived: bool,
     },
 }
 
@@ -80,6 +104,13 @@ async fn main() {
         Command::Activate { tab_id } => cmd_activate(&tab_id).await,
         Command::Open { url, browser } => cmd_open(&url, browser.as_deref()).await,
         Command::Clients => cmd_clients(),
+        Command::Synced { command } => match command {
+            SyncedCommand::List {
+                format,
+                browser,
+                archived,
+            } => cmd_synced_list(&format, browser.as_deref(), archived),
+        },
         Command::Install {
             mediator_path,
             chrome_extension_id,
@@ -518,6 +549,43 @@ fn cmd_clients() -> i32 {
     0
 }
 
+fn cmd_synced_list(format: &OutputFormat, browser_filter: Option<&str>, archived: bool) -> i32 {
+    let mut tabs = match synced::list_synced_tabs(browser_filter, archived) {
+        Ok(tabs) => tabs,
+        Err(error) => {
+            eprintln!("{error}");
+            return 1;
+        }
+    };
+
+    tabs.sort_by(|left, right| {
+        right
+            .browser
+            .cmp(&left.browser)
+            .then_with(|| right.last_synced.cmp(&left.last_synced))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+
+    match format {
+        OutputFormat::Json => {
+            let out: Vec<Value> = tabs.iter().map(synced_tab_json).collect();
+            println!("{}", serde_json::to_string_pretty(&out).unwrap());
+        }
+        OutputFormat::Tsv => {
+            for tab in &tabs {
+                let device_id = tab.device_id.as_deref().unwrap_or("");
+                let last_synced = tab.last_synced.as_deref().unwrap_or("");
+                println!(
+                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    tab.id, tab.source, device_id, last_synced, tab.title, tab.url
+                );
+            }
+        }
+    }
+
+    0
+}
+
 fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<String>) -> i32 {
     let mediator = mediator_path.unwrap_or_else(|| {
         // Try to find rustab-mediator next to this binary
@@ -669,6 +737,23 @@ fn build_firefox_manifest(mediator_path: &std::path::Path) -> String {
         "allowed_extensions": [FIREFOX_EXTENSION_ID]
     }))
     .unwrap()
+}
+
+fn synced_tab_json(tab: &SyncedTab) -> Value {
+    json!({
+        "id": tab.id,
+        "browser": tab.browser,
+        "kind": "synced",
+        "source": tab.source,
+        "device_id": tab.device_id,
+        "window_name": tab.window_name,
+        "window_id": tab.window_id,
+        "title": tab.title,
+        "url": tab.url,
+        "pinned": tab.pinned,
+        "last_synced": tab.last_synced,
+        "modified": tab.modified,
+    })
 }
 
 #[cfg(test)]
