@@ -1,4 +1,5 @@
 use plist::{Dictionary, Value};
+use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,19 +54,111 @@ fn list_orion_synced_tabs(home: &Path, archived: bool) -> Result<Vec<SyncedTab>,
     #[cfg(target_os = "macos")]
     {
         let defaults_dir = home.join("Library/Application Support/Orion/Defaults");
-        let current_path = defaults_dir.join(".local_named_windows.plist");
+        let current_session_path = defaults_dir.join("browser_session_state.plist");
+        let current_snapshot_path = defaults_dir.join(".local_named_windows.plist");
 
         if !archived {
-            if !current_path.is_file() {
-                return Ok(vec![]);
+            if current_session_path.is_file() {
+                let tabs = parse_orion_current_session_state(&current_session_path)?;
+                if !tabs.is_empty() {
+                    return Ok(tabs);
+                }
             }
 
-            return parse_orion_synced_snapshot(&current_path, "current");
+            if current_snapshot_path.is_file() {
+                return parse_orion_synced_snapshot(&current_snapshot_path, "current");
+            }
+
+            return Ok(vec![]);
         }
 
         latest_non_empty_orion_snapshot(&defaults_dir)
             .map(|result| result.map(|(_, tabs)| tabs).unwrap_or_default())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn parse_orion_current_session_state(path: &Path) -> Result<Vec<SyncedTab>, String> {
+    let value = Value::from_file(path).map_err(|e| {
+        format!(
+            "failed to read Orion current synced tabs from {}: {e}",
+            path.display()
+        )
+    })?;
+    let sessions = value.as_dictionary().ok_or_else(|| {
+        format!(
+            "unexpected Orion current synced tabs format in {}",
+            path.display()
+        )
+    })?;
+
+    let mut tabs = Vec::new();
+
+    for (session_key, session_value) in sessions {
+        let Some(session_dict) = session_value.as_dictionary() else {
+            continue;
+        };
+        let Some(window_dict) = dict_at(session_dict, "window") else {
+            continue;
+        };
+        let Some(window_json) = string_at(window_dict, "window") else {
+            continue;
+        };
+
+        let inner_window: JsonValue = serde_json::from_str(&window_json).map_err(|e| {
+            format!(
+                "failed to parse Orion current synced window JSON from {}: {e}",
+                path.display()
+            )
+        })?;
+
+        let window_name = preferred_window_name(window_dict, &inner_window);
+        let window_id = json_string_at(&inner_window, "sessionId")
+            .filter(|value| !value.is_empty())
+            .or_else(|| non_null_string(string_at(window_dict, "namedWindowID")))
+            .or_else(|| Some(session_key.clone()));
+
+        let Some(tab_values) = inner_window.get("tabs").and_then(|tabs| tabs.as_array()) else {
+            continue;
+        };
+
+        for tab_value in tab_values {
+            let Some(tab) = tab_value.as_object() else {
+                continue;
+            };
+
+            let title = tab.get("title").and_then(json_string).unwrap_or_default();
+            let url = tab.get("url").and_then(json_string).unwrap_or_default();
+            if title.is_empty() && url.is_empty() {
+                continue;
+            }
+
+            let tab_id = tab
+                .get("id")
+                .map(json_scalar_string)
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            tabs.push(SyncedTab {
+                id: format!("{session_key}.{tab_id}"),
+                browser: "orion".to_string(),
+                source: "current".to_string(),
+                device_id: None,
+                window_name: window_name.clone(),
+                window_id: window_id.clone(),
+                title,
+                url,
+                pinned: tab
+                    .get("pinned")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+                last_synced: None,
+                modified: None,
+            });
+        }
+    }
+
+    Ok(tabs)
 }
 
 #[cfg(target_os = "macos")]
@@ -195,6 +288,45 @@ fn string_at(dict: &Dictionary, key: &str) -> Option<String> {
     }
 }
 
+fn json_string_at(value: &JsonValue, key: &str) -> Option<String> {
+    json_string(value.get(key)?)
+}
+
+fn json_string(value: &JsonValue) -> Option<String> {
+    match value {
+        JsonValue::String(string) => Some(string.clone()),
+        _ => None,
+    }
+}
+
+fn json_scalar_string(value: &JsonValue) -> String {
+    match value {
+        JsonValue::String(string) => string.clone(),
+        JsonValue::Number(number) => number.to_string(),
+        JsonValue::Bool(boolean) => boolean.to_string(),
+        JsonValue::Null => "null".to_string(),
+        JsonValue::Array(_) | JsonValue::Object(_) => value.to_string(),
+    }
+}
+
+fn non_null_string(value: Option<String>) -> Option<String> {
+    match value.as_deref() {
+        Some("") | Some("$null") => None,
+        _ => value,
+    }
+}
+
+fn preferred_window_name(window_dict: &Dictionary, inner_window: &JsonValue) -> Option<String> {
+    let outer_name = non_null_string(string_at(window_dict, "windowName"));
+    if let Some(name) = outer_name {
+        if name != "window" {
+            return Some(name);
+        }
+    }
+
+    non_null_string(json_string_at(inner_window, "title"))
+}
+
 fn date_string_at(dict: &Dictionary, key: &str) -> Option<String> {
     match dict.get(key)? {
         Value::Date(value) => Some(value.to_xml_format()),
@@ -244,10 +376,41 @@ mod tests {
 </plist>
 "#;
 
+    const ORION_CURRENT_SESSION_FIXTURE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>C9E290CC-65C8-4EFA-A48A-D40E8EE65446</key>
+  <dict>
+    <key>window</key>
+    <dict>
+      <key>lastModified</key>
+      <real>1776603751.328046</real>
+      <key>namedWindowID</key>
+      <string>$null</string>
+      <key>windowId</key>
+      <integer>1</integer>
+      <key>windowName</key>
+      <string>window</string>
+      <key>window</key>
+      <string>{"title":"Window 1 — What's a foreign food your country modified and made it unrecognizable? : r/AskTheWorld","sessionId":"C9E290CC-65C8-4EFA-A48A-D40E8EE65446","tabs":[{"id":3,"title":"What's a foreign food your country modified and made it unrecognizable? : r/AskTheWorld","url":"https://www.reddit.com/r/AskTheWorld/comments/1spev7x/whats_a_foreign_food_your_country_modified_and/","pinned":false},{"id":933,"title":"rick astley - YouTube","url":"https://m.youtube.com/watch?v=dQw4w9WgXcQ","pinned":false}]}</string>
+    </dict>
+  </dict>
+</dict>
+</plist>
+"#;
+
     const EMPTY_ORION_SYNCED_TABS_FIXTURE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <array/>
+</plist>
+"#;
+
+    const EMPTY_ORION_CURRENT_SESSION_FIXTURE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict/>
 </plist>
 "#;
 
@@ -272,6 +435,30 @@ mod tests {
         assert!(!tabs[0].pinned);
         assert_eq!(tabs[0].last_synced.as_deref(), Some("2025-09-24T21:51:19Z"));
         assert_eq!(tabs[0].modified.as_deref(), Some("2025-08-01T06:59:46Z"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parses_orion_current_session_state() {
+        let path = write_temp_fixture("parse-orion-current-session", ORION_CURRENT_SESSION_FIXTURE);
+        let tabs = parse_orion_current_session_state(&path).expect("parse current session");
+
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0].browser, "orion");
+        assert_eq!(tabs[0].source, "current");
+        assert_eq!(tabs[0].device_id, None);
+        assert_eq!(
+            tabs[0].window_name.as_deref(),
+            Some("Window 1 — What's a foreign food your country modified and made it unrecognizable? : r/AskTheWorld")
+        );
+        assert_eq!(
+            tabs[0].window_id.as_deref(),
+            Some("C9E290CC-65C8-4EFA-A48A-D40E8EE65446")
+        );
+        assert_eq!(tabs[1].id, "C9E290CC-65C8-4EFA-A48A-D40E8EE65446.933");
+        assert_eq!(tabs[1].title, "rick astley - YouTube");
+        assert_eq!(tabs[1].url, "https://m.youtube.com/watch?v=dQw4w9WgXcQ");
+        assert_eq!(tabs[1].last_synced, None);
     }
 
     #[cfg(target_os = "macos")]
@@ -312,8 +499,8 @@ mod tests {
         let defaults_dir = home.join("Library/Application Support/Orion/Defaults");
         std::fs::create_dir_all(&defaults_dir).expect("create defaults dir");
         std::fs::write(
-            defaults_dir.join(".local_named_windows.plist"),
-            EMPTY_ORION_SYNCED_TABS_FIXTURE,
+            defaults_dir.join("browser_session_state.plist"),
+            EMPTY_ORION_CURRENT_SESSION_FIXTURE,
         )
         .expect("write current empty fixture");
         std::fs::create_dir_all(defaults_dir.join("bk_136")).expect("create bk_136");
@@ -331,6 +518,31 @@ mod tests {
         assert!(current_tabs.is_empty());
         assert_eq!(archived_tabs.len(), 1);
         assert_eq!(archived_tabs[0].source, "archived");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn current_orion_sync_state_prefers_browser_session_state() {
+        let home = temp_home_dir("current-orion-prefers-session-state");
+        let defaults_dir = home.join("Library/Application Support/Orion/Defaults");
+        std::fs::create_dir_all(&defaults_dir).expect("create defaults dir");
+        std::fs::write(
+            defaults_dir.join("browser_session_state.plist"),
+            ORION_CURRENT_SESSION_FIXTURE,
+        )
+        .expect("write current session fixture");
+        std::fs::write(
+            defaults_dir.join(".local_named_windows.plist"),
+            ORION_SYNCED_TABS_FIXTURE,
+        )
+        .expect("write current snapshot fixture");
+
+        let current_tabs =
+            list_synced_tabs_from_home(&home, Some("orion"), false).expect("current synced tabs");
+
+        assert_eq!(current_tabs.len(), 2);
+        assert_eq!(current_tabs[0].source, "current");
+        assert_eq!(current_tabs[1].title, "rick astley - YouTube");
     }
 
     #[test]
