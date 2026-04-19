@@ -147,7 +147,7 @@
           inherit version;
           src = self;
 
-          cargoHash = "sha256-khDMXqnhdbIvCIdvivhjt8nG4BhD8/Six9WyPFo1eGk=";
+          cargoHash = "sha256-VJUVAdZmC9EanaVcWvOLmGTOQ7viXu2K+yNFT95lwYU=";
 
           postInstall = ''
             # Firefox native messaging host manifest
