@@ -198,39 +198,55 @@ async fn handle_client(
 /// Detect which browser launched us based on CLI args and parent process.
 fn detect_browser() -> String {
     let args: Vec<String> = std::env::args().collect();
+    let parent_process_name = parent_process_name();
 
-    // Firefox-based: arg contains .mozilla or .zen path
-    if args.iter().any(|a| a.contains(".zen")) {
-        return "zen".into();
+    detect_browser_from_launch_context(&args, parent_process_name.as_deref()).into()
+}
+
+fn detect_browser_from_launch_context(
+    args: &[String],
+    parent_process_name: Option<&str>,
+) -> &'static str {
+    let parent_process_name = parent_process_name.map(|name| name.to_lowercase());
+    let parent_contains = |needle: &str| {
+        parent_process_name
+            .as_deref()
+            .is_some_and(|name| name.contains(needle))
+    };
+
+    // Firefox-based: macOS Firefox can omit a `.mozilla` path when spawning
+    // the native host, so fall back to the parent process name there.
+    if args.iter().any(|a| a.contains(".zen")) || parent_contains("zen") {
+        return "zen";
     }
-    if args.iter().any(|a| a.contains(".mozilla")) {
-        return "firefox".into();
+    if args.iter().any(|a| a.contains(".mozilla")) || parent_contains("firefox") {
+        return "firefox";
     }
 
     // Chromium-based: arg contains chrome-extension://
     if args.iter().any(|a| a.contains("chrome-extension://")) {
-        if let Some(name) = parent_process_name() {
-            let lower = name.to_lowercase();
-            if lower.contains("brave") {
-                return "brave".into();
-            }
-            if lower.contains("edge") {
-                return "edge".into();
-            }
-            if lower.contains("vivaldi") {
-                return "vivaldi".into();
-            }
-            if lower.contains("opera") {
-                return "opera".into();
-            }
-            if lower.contains("chromium") {
-                return "chromium".into();
-            }
+        if parent_contains("brave") {
+            return "brave";
         }
-        return "chrome".into();
+        if parent_contains("orion") {
+            return "orion";
+        }
+        if parent_contains("edge") {
+            return "edge";
+        }
+        if parent_contains("vivaldi") {
+            return "vivaldi";
+        }
+        if parent_contains("opera") {
+            return "opera";
+        }
+        if parent_contains("chromium") {
+            return "chromium";
+        }
+        return "chrome";
     }
 
-    "unknown".into()
+    "unknown"
 }
 
 /// Read the parent process name.
@@ -293,5 +309,55 @@ fn cleanup_stale_sockets(dir: &std::path::Path) {
                 let _ = std::fs::remove_file(&path);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::detect_browser_from_launch_context;
+
+    #[test]
+    fn detects_firefox_from_parent_process_when_args_omit_mozilla_path() {
+        let args = vec!["rustab-mediator".to_string()];
+
+        assert_eq!(
+            detect_browser_from_launch_context(
+                &args,
+                Some("/Applications/Firefox.app/Contents/MacOS/firefox"),
+            ),
+            "firefox"
+        );
+    }
+
+    #[test]
+    fn keeps_chromium_browser_detection_from_parent_process() {
+        let args = vec![
+            "rustab-mediator".to_string(),
+            "chrome-extension://nddbmnpippfilnjoebpcnfbpebnllbgo/".to_string(),
+        ];
+
+        assert_eq!(
+            detect_browser_from_launch_context(
+                &args,
+                Some("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
+            ),
+            "brave"
+        );
+    }
+
+    #[test]
+    fn detects_orion_from_parent_process_for_chromium_extension() {
+        let args = vec![
+            "rustab-mediator".to_string(),
+            "chrome-extension://nddbmnpippfilnjoebpcnfbpebnllbgo/".to_string(),
+        ];
+
+        assert_eq!(
+            detect_browser_from_launch_context(
+                &args,
+                Some("/Applications/Orion.app/Contents/MacOS/Orion")
+            ),
+            "orion"
+        );
     }
 }

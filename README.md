@@ -17,7 +17,7 @@ $ rustab list | grep Reddit | rustab close
 ## Features
 
 - List, close, activate, and open browser tabs from the CLI
-- Supports Chrome, Brave, Firefox, Chromium, Edge, Vivaldi, Zen, Opera
+- Supports Chrome, Brave, Firefox, Chromium, Orion, Edge, Vivaldi, Zen, Opera
 - Pipe-friendly: `rustab list | grep pattern | rustab close`
 - TSV and JSON output formats
 - Multiple concurrent browsers
@@ -66,7 +66,7 @@ The flake `lib` output also provides:
 - `firefoxExtensionId`
 - `mkChromiumPolicy`
 
-#### Brave / Chrome / Chromium
+#### Brave / Chrome / Chromium / Orion
 
 On Linux, a browser wrapper can load the unpacked extension via `--load-extension`:
 
@@ -90,11 +90,13 @@ in {
 }
 ```
 
-On macOS, Chromium browsers still require a one-time `Load unpacked` step because fully declarative installation would need a packaged CRX and hosted update manifest. A clean approach is to expose the unpacked extension at a stable path in your home directory and load it once from `brave://extensions`.
+On macOS, Chromium browsers still require a one-time manual extension install because fully declarative installation would need a packaged CRX and hosted update manifest. A clean approach is to expose the unpacked extension at a stable path in your home directory and load it once from `brave://extensions`, `chrome://extensions`, or Orion's `Tools > Extensions > Install from Disk`.
 
 Rustab also installs the native messaging host manifest for Brave into Chromium-family fallback locations on macOS. This is intentional: current Brave releases do not always discover `NativeMessagingHosts` from their branded `BraveSoftware/Brave-Browser` application-support directory, but they do reliably pick up the standard Chromium user paths.
 
 That means `rustab install` may report multiple manifest locations for a single Brave profile on macOS. This is expected.
+
+On macOS, `rustab install` also writes Orion's native messaging host manifest to `~/Library/Application Support/Orion/NativeMessagingHosts`.
 
 ### Managed Chromium Distribution
 
@@ -193,6 +195,7 @@ cargo build --release
 
 Then load the browser extension:
 - **Chrome/Brave**: Go to `chrome://extensions` or `brave://extensions`, enable Developer Mode, and "Load unpacked" from `extensions/chrome/`
+- **Orion**: Open `Tools > Extensions > Install from Disk` and choose `extensions/chrome/`
 - **Firefox**: Open `extensions/firefox-signed/rustab@rustab.dev.xpi` in Firefox to install
 
 `rustab install` uses the built-in Chromium extension ID by default. If you're testing a custom unpacked Chromium extension build with a different ID, pass `--chrome-extension-id <ID>`.

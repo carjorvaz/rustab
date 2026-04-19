@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   checks:
-    name: Flake Checks
+    name: Checks
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -23,6 +23,15 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
+
+      - name: Check formatting
+        run: nix develop -c cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: nix develop -c cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: nix develop -c cargo test
 
       - name: Run flake checks
         run: nix flake check --print-build-logs

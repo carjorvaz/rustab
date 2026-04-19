@@ -63,6 +63,12 @@ jobs:
             echo "release_asset_url=${release_asset_url}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Check formatting
+        run: nix develop -c cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: nix develop -c cargo clippy --workspace --all-targets -- -D warnings
+
       - name: Run tests
         run: nix develop -c cargo test
 

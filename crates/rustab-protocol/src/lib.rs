@@ -59,7 +59,7 @@ pub fn socket_dir() -> PathBuf {
     #[cfg(unix)]
     {
         let uid = unsafe { geteuid() };
-        return PathBuf::from(format!("/tmp/rustab-{uid}"));
+        PathBuf::from(format!("/tmp/rustab-{uid}"))
     }
 
     #[cfg(not(unix))]
@@ -88,6 +88,7 @@ pub fn browser_prefix(browser: &str) -> &str {
         "firefox" => "f",
         "chrome" => "c",
         "brave" => "b",
+        "orion" => "or",
         "chromium" => "cr",
         "zen" => "z",
         "edge" => "e",
@@ -173,6 +174,13 @@ pub const BROWSERS: &[BrowserManifestInfo] = &[
     BrowserManifestInfo {
         name: "chromium",
         config_dir: "Library/Application Support/Chromium",
+        manifest_subdir: "NativeMessagingHosts",
+        is_firefox: false,
+    },
+    #[cfg(target_os = "macos")]
+    BrowserManifestInfo {
+        name: "orion",
+        config_dir: "Library/Application Support/Orion",
         manifest_subdir: "NativeMessagingHosts",
         is_firefox: false,
     },
@@ -298,6 +306,10 @@ mod tests {
             .iter()
             .find(|browser| browser.name == "brave")
             .unwrap();
+        let orion = BROWSERS
+            .iter()
+            .find(|browser| browser.name == "orion")
+            .unwrap();
         let zen = BROWSERS
             .iter()
             .find(|browser| browser.name == "zen")
@@ -307,6 +319,7 @@ mod tests {
             brave.config_dir,
             "Library/Application Support/BraveSoftware/Brave-Browser"
         );
+        assert_eq!(orion.config_dir, "Library/Application Support/Orion");
         assert_eq!(firefox.config_dir, "Library/Application Support/Mozilla");
         assert_eq!(zen.manifest_subdir, "NativeMessagingHosts");
     }

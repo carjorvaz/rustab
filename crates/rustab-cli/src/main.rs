@@ -555,4 +555,22 @@ mod tests {
             ]
         );
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn orion_mac_manifest_dir_uses_orion_application_support_path() {
+        let orion = BROWSERS
+            .iter()
+            .find(|browser| browser.name == "orion")
+            .expect("orion browser metadata");
+
+        let dirs = manifest_target_dirs(Path::new("/Users/test"), orion);
+
+        assert_eq!(
+            dirs,
+            vec![PathBuf::from(
+                "/Users/test/Library/Application Support/Orion/NativeMessagingHosts"
+            ),]
+        );
+    }
 }
