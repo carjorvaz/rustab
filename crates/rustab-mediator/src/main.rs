@@ -237,9 +237,6 @@ fn detect_browser_from_launch_context(
         if parent_contains("vivaldi") {
             return "vivaldi";
         }
-        if parent_contains("opera") {
-            return "opera";
-        }
         if parent_contains("chromium") {
             return "chromium";
         }

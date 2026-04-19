@@ -93,16 +93,46 @@ pub fn browser_prefix(browser: &str) -> &str {
         "zen" => "z",
         "edge" => "e",
         "vivaldi" => "v",
-        "opera" => "o",
         _ => "u",
     }
 }
 
-/// Parse a prefixed tab ID like "c.123" into (browser_prefix, numeric_id).
-pub fn parse_tab_id(s: &str) -> Option<(&str, u64)> {
-    let (prefix, id_str) = s.split_once('.')?;
-    let id = id_str.parse().ok()?;
-    Some((prefix, id))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TabRef<'a> {
+    pub prefix: &'a str,
+    pub mediator_pid: Option<u32>,
+    pub tab_id: u64,
+}
+
+/// Format a tab ID using the browser prefix, mediator PID, and browser tab ID.
+pub fn format_tab_id(prefix: &str, mediator_pid: u32, tab_id: u64) -> String {
+    format!("{prefix}.{mediator_pid}.{tab_id}")
+}
+
+/// Parse a tab ID.
+///
+/// Accepts either the current `prefix.pid.tab_id` format or the legacy
+/// `prefix.tab_id` shorthand for single-mediator setups.
+pub fn parse_tab_id(s: &str) -> Option<TabRef<'_>> {
+    let mut parts = s.split('.');
+    let prefix = parts.next()?;
+    let second = parts.next()?;
+    let third = parts.next();
+
+    if prefix.is_empty() || parts.next().is_some() {
+        return None;
+    }
+
+    let (mediator_pid, tab_id) = match third {
+        Some(tab_id_str) => (Some(second.parse().ok()?), tab_id_str.parse().ok()?),
+        None => (None, second.parse().ok()?),
+    };
+
+    Some(TabRef {
+        prefix,
+        mediator_pid,
+        tab_id,
+    })
 }
 
 #[cfg(unix)]
@@ -272,6 +302,35 @@ mod tests {
             parse_socket_name("brave-123.sock"),
             Some(("brave".to_string(), 123))
         );
+    }
+
+    #[test]
+    fn parses_legacy_tab_ids() {
+        assert_eq!(
+            parse_tab_id("b.42"),
+            Some(TabRef {
+                prefix: "b",
+                mediator_pid: None,
+                tab_id: 42,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_full_tab_ids() {
+        assert_eq!(
+            parse_tab_id("b.12345.42"),
+            Some(TabRef {
+                prefix: "b",
+                mediator_pid: Some(12345),
+                tab_id: 42,
+            })
+        );
+    }
+
+    #[test]
+    fn formats_full_tab_ids() {
+        assert_eq!(format_tab_id("b", 12345, 42), "b.12345.42");
     }
 
     #[cfg(target_os = "linux")]

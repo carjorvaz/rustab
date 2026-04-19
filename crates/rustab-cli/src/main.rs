@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rustab_protocol::{
-    browser_prefix, is_pid_alive, parse_socket_name, parse_tab_id, read_message, socket_dir,
-    write_message, BROWSERS, CHROME_EXTENSION_ID, FIREFOX_EXTENSION_ID, NATIVE_HOST_NAME,
+    browser_prefix, format_tab_id, is_pid_alive, parse_socket_name, parse_tab_id, read_message,
+    socket_dir, write_message, TabRef, BROWSERS, CHROME_EXTENSION_ID, FIREFOX_EXTENSION_ID,
+    NATIVE_HOST_NAME,
 };
 use serde_json::{json, Value};
 use std::io::{BufRead, IsTerminal};
@@ -32,21 +33,21 @@ enum Command {
         #[arg(short, long)]
         browser: Option<String>,
     },
-    /// Close tabs by ID (prefix.id format, from args or stdin)
+    /// Close tabs by ID (`prefix.pid.id`, or legacy `prefix.id`)
     Close {
         /// Tab IDs to close; reads from stdin if none given
         tab_ids: Vec<String>,
     },
     /// Activate (focus) a tab by ID
     Activate {
-        /// Tab ID (prefix.id format)
+        /// Tab ID (`prefix.pid.id`, or legacy `prefix.id`)
         tab_id: String,
     },
     /// Open a URL in a new tab
     Open {
         /// URL to open
         url: String,
-        /// Target browser (uses first available if not specified)
+        /// Target browser (uses first responsive connected browser if not specified)
         #[arg(short, long)]
         browser: Option<String>,
     },
@@ -90,8 +91,10 @@ async fn main() {
 
 // --- Socket discovery ---
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct BrowserSocket {
     browser: String,
+    pid: u32,
     path: PathBuf,
 }
 
@@ -101,7 +104,7 @@ fn discover_sockets(browser_filter: Option<&str>) -> Vec<BrowserSocket> {
         return vec![];
     };
 
-    entries
+    let mut sockets = entries
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_str()?.to_string();
@@ -119,10 +122,19 @@ fn discover_sockets(browser_filter: Option<&str>) -> Vec<BrowserSocket> {
 
             Some(BrowserSocket {
                 browser,
+                pid,
                 path: entry.path(),
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    sockets.sort_by(|left, right| {
+        left.browser
+            .cmp(&right.browser)
+            .then(left.pid.cmp(&right.pid))
+            .then(left.path.cmp(&right.path))
+    });
+    sockets
 }
 
 async fn send_request(socket_path: &std::path::Path, request: &Value) -> Result<Value, String> {
@@ -145,17 +157,94 @@ async fn send_request(socket_path: &std::path::Path, request: &Value) -> Result<
     .map_err(|e| format!("read: {e}"))
 }
 
-fn find_socket_for_prefix<'a>(
+fn resolve_socket<'a>(
     sockets: &'a [BrowserSocket],
     prefix: &str,
-) -> Option<&'a BrowserSocket> {
-    sockets
+    mediator_pid: Option<u32>,
+) -> Result<&'a BrowserSocket, String> {
+    let mut matching_sockets = sockets
         .iter()
-        .find(|s| browser_prefix(&s.browser) == prefix)
+        .filter(|socket| browser_prefix(&socket.browser) == prefix);
+
+    if let Some(mediator_pid) = mediator_pid {
+        return matching_sockets
+            .find(|socket| socket.pid == mediator_pid)
+            .ok_or_else(|| {
+                format!(
+                    "No browser connected for prefix '{}' with pid {}",
+                    prefix, mediator_pid
+                )
+            });
+    }
+
+    let Some(first_match) = matching_sockets.next() else {
+        return Err(format!("No browser connected for prefix '{}'", prefix));
+    };
+
+    if matching_sockets.next().is_some() {
+        return Err(format!(
+            "Multiple browsers connected for prefix '{}'. Use the full tab ID from `rustab list`.",
+            prefix
+        ));
+    }
+
+    Ok(first_match)
+}
+
+fn resolve_socket_for_tab_ref<'a>(
+    sockets: &'a [BrowserSocket],
+    tab_ref: TabRef<'_>,
+) -> Result<&'a BrowserSocket, String> {
+    resolve_socket(sockets, tab_ref.prefix, tab_ref.mediator_pid)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TabListing {
+    socket: BrowserSocket,
+    tab_id: u64,
+    window_id: u64,
+    title: String,
+    url: String,
+    active: bool,
+}
+
+impl TabListing {
+    fn from_response(socket: &BrowserSocket, tab: &Value) -> Self {
+        Self {
+            socket: socket.clone(),
+            tab_id: tab.get("id").and_then(|value| value.as_u64()).unwrap_or(0),
+            window_id: tab
+                .get("window_id")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0),
+            title: tab
+                .get("title")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            url: tab
+                .get("url")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            active: tab
+                .get("active")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+        }
+    }
+
+    fn display_id(&self) -> String {
+        format_tab_id(
+            browser_prefix(&self.socket.browser),
+            self.socket.pid,
+            self.tab_id,
+        )
+    }
 }
 
 /// Collect tab IDs from args, or read from stdin (one per line, first
-/// whitespace-delimited field — so `rustab list | rustab close` works).
+/// tab-delimited field — so `rustab list | rustab close` works).
 fn collect_tab_ids(mut args: Vec<String>) -> Vec<String> {
     if !args.is_empty() {
         return args;
@@ -199,54 +288,63 @@ async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
         return 1;
     }
 
-    let mut all_tabs: Vec<(String, Value)> = Vec::new();
+    let mut all_tabs = Vec::new();
+    let mut successful_responses = 0;
 
     for sock in &sockets {
         let request = json!({"id": 1, "method": "list_tabs"});
         match send_request(&sock.path, &request).await {
             Ok(response) => {
                 if let Some(tabs) = response.get("result").and_then(|r| r.as_array()) {
+                    successful_responses += 1;
                     for tab in tabs {
-                        all_tabs.push((sock.browser.clone(), tab.clone()));
+                        all_tabs.push(TabListing::from_response(sock, tab));
                     }
                 } else if let Some(err) = response.get("error") {
-                    eprintln!("{}: {}", sock.browser, err);
+                    eprintln!("{} (pid {}): {}", sock.browser, sock.pid, err);
+                } else {
+                    eprintln!("{} (pid {}): invalid response", sock.browser, sock.pid);
                 }
             }
-            Err(e) => eprintln!("{}: {e}", sock.browser),
+            Err(e) => eprintln!("{} (pid {}): {e}", sock.browser, sock.pid),
         }
     }
 
-    // Sort by window so tabs from the same window are grouped together
-    all_tabs.sort_by_key(|(_, tab)| tab.get("window_id").and_then(|v| v.as_u64()).unwrap_or(0));
+    if successful_responses == 0 {
+        return 1;
+    }
+
+    // Group tabs by browser instance first, then by window within that browser.
+    all_tabs.sort_by(|left, right| {
+        left.socket
+            .browser
+            .cmp(&right.socket.browser)
+            .then(left.socket.pid.cmp(&right.socket.pid))
+            .then(left.window_id.cmp(&right.window_id))
+            .then(left.tab_id.cmp(&right.tab_id))
+    });
 
     match format {
         OutputFormat::Json => {
             let out: Vec<Value> = all_tabs
                 .iter()
-                .map(|(browser, tab)| {
-                    let prefix = browser_prefix(browser);
-                    let id = tab.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let window_id = tab.get("window_id").and_then(|v| v.as_u64()).unwrap_or(0);
+                .map(|tab| {
                     json!({
-                        "id": format!("{prefix}.{id}"),
-                        "browser": browser,
-                        "window_id": window_id,
-                        "title": tab.get("title").and_then(|v| v.as_str()).unwrap_or(""),
-                        "url": tab.get("url").and_then(|v| v.as_str()).unwrap_or(""),
-                        "active": tab.get("active").and_then(|v| v.as_bool()).unwrap_or(false),
+                        "id": tab.display_id(),
+                        "browser": tab.socket.browser.as_str(),
+                        "mediator_pid": tab.socket.pid,
+                        "window_id": tab.window_id,
+                        "title": tab.title.as_str(),
+                        "url": tab.url.as_str(),
+                        "active": tab.active,
                     })
                 })
                 .collect();
             println!("{}", serde_json::to_string_pretty(&out).unwrap());
         }
         OutputFormat::Tsv => {
-            for (browser, tab) in &all_tabs {
-                let prefix = browser_prefix(browser);
-                let id = tab.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-                let title = tab.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                println!("{prefix}.{id}\t{title}\t{url}");
+            for tab in &all_tabs {
+                println!("{}\t{}\t{}", tab.display_id(), tab.title, tab.url);
             }
         }
     }
@@ -262,17 +360,22 @@ async fn cmd_close(tab_ids: Vec<String>) -> i32 {
         return 1;
     }
 
-    // Group tab IDs by browser prefix
-    let mut by_browser: std::collections::HashMap<String, Vec<u64>> =
-        std::collections::HashMap::new();
+    // Group tab IDs by browser prefix and mediator PID.
+    let mut by_socket: std::collections::BTreeMap<(String, Option<u32>), Vec<u64>> =
+        std::collections::BTreeMap::new();
 
     for id_str in &tab_ids {
         match parse_tab_id(id_str) {
-            Some((prefix, id)) => {
-                by_browser.entry(prefix.to_string()).or_default().push(id);
+            Some(tab_ref) => {
+                by_socket
+                    .entry((tab_ref.prefix.to_string(), tab_ref.mediator_pid))
+                    .or_default()
+                    .push(tab_ref.tab_id);
             }
             None => {
-                eprintln!("Invalid tab ID format: {id_str} (expected prefix.number, e.g. c.123)");
+                eprintln!(
+                    "Invalid tab ID format: {id_str} (expected prefix.pid.id, e.g. c.4242.123)"
+                );
                 return 1;
             }
         }
@@ -281,23 +384,26 @@ async fn cmd_close(tab_ids: Vec<String>) -> i32 {
     let sockets = discover_sockets(None);
     let mut failed = false;
 
-    for (prefix, ids) in &by_browser {
-        let Some(sock) = find_socket_for_prefix(&sockets, prefix) else {
-            eprintln!("No browser connected for prefix '{prefix}'");
-            failed = true;
-            continue;
+    for ((prefix, mediator_pid), ids) in &by_socket {
+        let sock = match resolve_socket(&sockets, prefix, *mediator_pid) {
+            Ok(sock) => sock,
+            Err(err) => {
+                eprintln!("{err}");
+                failed = true;
+                continue;
+            }
         };
 
         let request = json!({"id": 1, "method": "close_tabs", "params": {"tab_ids": ids}});
         match send_request(&sock.path, &request).await {
             Ok(response) => {
                 if let Some(err) = response.get("error") {
-                    eprintln!("{}: {}", sock.browser, err);
+                    eprintln!("{} (pid {}): {}", sock.browser, sock.pid, err);
                     failed = true;
                 }
             }
             Err(e) => {
-                eprintln!("{}: {e}", sock.browser);
+                eprintln!("{} (pid {}): {e}", sock.browser, sock.pid);
                 failed = true;
             }
         }
@@ -307,28 +413,31 @@ async fn cmd_close(tab_ids: Vec<String>) -> i32 {
 }
 
 async fn cmd_activate(tab_id: &str) -> i32 {
-    let Some((prefix, id)) = parse_tab_id(tab_id) else {
-        eprintln!("Invalid tab ID format: {tab_id} (expected prefix.number, e.g. c.123)");
+    let Some(tab_ref) = parse_tab_id(tab_id) else {
+        eprintln!("Invalid tab ID format: {tab_id} (expected prefix.pid.id, e.g. c.4242.123)");
         return 1;
     };
 
     let sockets = discover_sockets(None);
-    let Some(sock) = find_socket_for_prefix(&sockets, prefix) else {
-        eprintln!("No browser connected for prefix '{prefix}'");
-        return 1;
+    let sock = match resolve_socket_for_tab_ref(&sockets, tab_ref) {
+        Ok(sock) => sock,
+        Err(err) => {
+            eprintln!("{err}");
+            return 1;
+        }
     };
 
-    let request = json!({"id": 1, "method": "activate_tab", "params": {"tab_id": id}});
+    let request = json!({"id": 1, "method": "activate_tab", "params": {"tab_id": tab_ref.tab_id}});
     match send_request(&sock.path, &request).await {
         Ok(response) => {
             if let Some(err) = response.get("error") {
-                eprintln!("{}: {}", sock.browser, err);
+                eprintln!("{} (pid {}): {}", sock.browser, sock.pid, err);
                 return 1;
             }
             0
         }
         Err(e) => {
-            eprintln!("{}: {e}", sock.browser);
+            eprintln!("{} (pid {}): {e}", sock.browser, sock.pid);
             1
         }
     }
@@ -337,30 +446,55 @@ async fn cmd_activate(tab_id: &str) -> i32 {
 async fn cmd_open(url: &str, browser_filter: Option<&str>) -> i32 {
     let sockets = discover_sockets(browser_filter);
 
-    let Some(sock) = sockets.first() else {
-        eprintln!("No browsers connected");
+    if sockets.is_empty() {
+        match browser_filter {
+            Some(browser) => eprintln!("No browsers connected matching '{browser}'"),
+            None => eprintln!("No browsers connected"),
+        }
         return 1;
-    };
+    }
 
     let request = json!({"id": 1, "method": "open_tab", "params": {"url": url}});
-    match send_request(&sock.path, &request).await {
-        Ok(response) => {
-            if let Some(err) = response.get("error") {
-                eprintln!("{}: {}", sock.browser, err);
-                return 1;
+    let mut errors = Vec::new();
+
+    for sock in &sockets {
+        match send_request(&sock.path, &request).await {
+            Ok(response) => {
+                if let Some(err) = response.get("error") {
+                    errors.push(format!("{} (pid {}): {}", sock.browser, sock.pid, err));
+                    continue;
+                }
+
+                let Some(result) = response.get("result") else {
+                    errors.push(format!(
+                        "{} (pid {}): invalid response",
+                        sock.browser, sock.pid
+                    ));
+                    continue;
+                };
+                let Some(tab_id) = result.get("id").and_then(|value| value.as_u64()) else {
+                    errors.push(format!(
+                        "{} (pid {}): missing tab id in response",
+                        sock.browser, sock.pid
+                    ));
+                    continue;
+                };
+
+                println!(
+                    "{}",
+                    format_tab_id(browser_prefix(&sock.browser), sock.pid, tab_id)
+                );
+                return 0;
             }
-            if let Some(result) = response.get("result") {
-                let id = result.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-                let prefix = browser_prefix(&sock.browser);
-                println!("{prefix}.{id}");
-            }
-            0
-        }
-        Err(e) => {
-            eprintln!("{}: {e}", sock.browser);
-            1
+            Err(e) => errors.push(format!("{} (pid {}): {e}", sock.browser, sock.pid)),
         }
     }
+
+    for error in errors {
+        eprintln!("{error}");
+    }
+
+    1
 }
 
 fn cmd_clients() -> i32 {
@@ -373,7 +507,12 @@ fn cmd_clients() -> i32 {
 
     for sock in &sockets {
         let prefix = browser_prefix(&sock.browser);
-        println!("{prefix}\t{}\t{}", sock.browser, sock.path.display());
+        println!(
+            "{prefix}\t{}\t{}\t{}",
+            sock.browser,
+            sock.pid,
+            sock.path.display()
+        );
     }
 
     0
@@ -535,6 +674,65 @@ fn build_firefox_manifest(mediator_path: &std::path::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn socket(browser: &str, pid: u32) -> BrowserSocket {
+        BrowserSocket {
+            browser: browser.to_string(),
+            pid,
+            path: PathBuf::from(format!("/tmp/{browser}-{pid}.sock")),
+        }
+    }
+
+    #[test]
+    fn resolves_legacy_tab_ids_when_only_one_socket_matches() {
+        let sockets = vec![socket("brave", 101)];
+
+        let resolved = resolve_socket_for_tab_ref(
+            &sockets,
+            TabRef {
+                prefix: "b",
+                mediator_pid: None,
+                tab_id: 42,
+            },
+        )
+        .expect("single Brave socket should resolve");
+
+        assert_eq!(resolved.pid, 101);
+    }
+
+    #[test]
+    fn rejects_legacy_tab_ids_when_multiple_sockets_match() {
+        let sockets = vec![socket("brave", 101), socket("brave", 202)];
+
+        let err = resolve_socket_for_tab_ref(
+            &sockets,
+            TabRef {
+                prefix: "b",
+                mediator_pid: None,
+                tab_id: 42,
+            },
+        )
+        .expect_err("legacy IDs should be ambiguous across multiple Brave sockets");
+
+        assert!(err.contains("Multiple browsers connected"));
+    }
+
+    #[test]
+    fn resolves_full_tab_ids_to_the_matching_socket() {
+        let sockets = vec![socket("brave", 101), socket("brave", 202)];
+
+        let resolved = resolve_socket_for_tab_ref(
+            &sockets,
+            TabRef {
+                prefix: "b",
+                mediator_pid: Some(202),
+                tab_id: 42,
+            },
+        )
+        .expect("full IDs should resolve to a specific socket");
+
+        assert_eq!(resolved.pid, 202);
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

@@ -8,16 +8,16 @@ Particularly useful with AI coding tools like Claude Code — lets your AI assis
 
 ```
 $ rustab list
-b.42    GitHub - rustab      https://github.com/user/rustab
-b.99    Nix manual           https://nixos.org/manual/nix/stable/
-f.12    Reddit               https://www.reddit.com
+b.18452.42    GitHub - rustab      https://github.com/user/rustab
+b.18452.99    Nix manual           https://nixos.org/manual/nix/stable/
+f.20881.12    Reddit               https://www.reddit.com
 $ rustab list | grep Reddit | rustab close
 ```
 
 ## Features
 
 - List, close, activate, and open browser tabs from the CLI
-- Supports Chrome, Brave, Firefox, Chromium, Orion, Edge, Vivaldi, Zen, Opera
+- Supports Chrome, Brave, Firefox, Chromium, Orion, Edge, Vivaldi, Zen
 - Pipe-friendly: `rustab list | grep pattern | rustab close`
 - TSV and JSON output formats
 - Multiple concurrent browsers
@@ -32,7 +32,7 @@ Browser extension  <--native messaging (stdio)-->  rustab-mediator  <--Unix sock
 
 Each browser instance gets its own mediator process and Unix socket at `/tmp/rustab-{uid}/{browser}-{pid}.sock`. The CLI discovers mediators by scanning this directory and filtering out stale sockets (dead PIDs).
 
-Tab IDs are prefixed by browser: `c.123` (Chrome), `b.456` (Brave), `f.789` (Firefox), etc.
+Rustab emits full tab IDs that include the browser prefix, mediator PID, and browser tab ID: `c.18452.123`, `b.20881.456`, `f.19001.789`, etc. The legacy two-part form (`c.123`) is still accepted when only one matching browser instance is connected.
 
 ## Installation
 
@@ -171,7 +171,7 @@ To use it:
 
 The workflow does not require a `gh-pages` branch. It deploys Pages directly from the workflow artifact, which keeps the repository history free of generated release files.
 
-For normal push and pull request validation, `.github/workflows/ci.yml` runs `nix flake check` without needing signing secrets.
+For normal push and pull request validation, `.github/workflows/ci.yml` runs formatting, clippy, tests, and `nix flake check` without needing signing secrets.
 
 #### Firefox / Zen
 
@@ -206,12 +206,12 @@ Then load the browser extension:
 rustab list                                # list all tabs (TSV)
 rustab list --format json                  # list all tabs (JSON)
 rustab list --browser brave                # list tabs from Brave only
-rustab close b.42 b.99                     # close specific tabs
+rustab close b.18452.42 b.18452.99         # close specific tabs
 rustab list | grep github | rustab close   # pipe pattern
-rustab activate c.42                       # focus a tab
-rustab open https://example.com            # open URL in first available browser
+rustab activate c.18452.42                 # focus a tab
+rustab open https://example.com            # open URL in the first responsive browser
 rustab open -b firefox https://x.com       # open in specific browser
-rustab clients                             # show connected browsers
+rustab clients                             # show connected browsers, mediator PIDs, and sockets
 ```
 
 ## Development
