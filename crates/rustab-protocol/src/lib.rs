@@ -1,6 +1,6 @@
 use std::io;
 use std::path::{Path, PathBuf};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const REQUEST_TIMEOUT_SECS: u64 = 10;
 pub const LIST_TABS_METHOD: &str = "list_tabs";
@@ -10,27 +10,26 @@ pub const ACTIVATE_TAB_METHOD: &str = "activate_tab";
 pub const OPEN_TAB_METHOD: &str = "open_tab";
 pub const MOVE_TABS_METHOD: &str = "move_tabs";
 
+const DEFAULT_REQUEST_ID: u64 = 1;
+const MAX_INBOUND_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_OUTBOUND_MESSAGE_BYTES: usize = 1024 * 1024;
+
 /// Read a native-messaging-framed JSON message.
 ///
 /// Wire format: 4-byte little-endian u32 length prefix, then UTF-8 JSON payload.
 /// This is the same framing used by Chrome/Firefox native messaging over stdio
 /// and by our Unix socket protocol.
-pub async fn read_message<R: AsyncReadExt + Unpin>(
-    reader: &mut R,
-) -> std::io::Result<serde_json::Value> {
+pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut R) -> io::Result<serde_json::Value> {
     let mut len_buf = [0u8; 4];
     reader.read_exact(&mut len_buf).await?;
     let len = u32::from_le_bytes(len_buf) as usize;
 
     if len == 0 {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "empty message",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "empty message"));
     }
-    if len > 64 * 1024 * 1024 {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
+    if len > MAX_INBOUND_MESSAGE_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
             "message exceeds 64 MiB",
         ));
     }
@@ -38,20 +37,19 @@ pub async fn read_message<R: AsyncReadExt + Unpin>(
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).await?;
 
-    serde_json::from_slice(&buf)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    serde_json::from_slice(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 /// Write a native-messaging-framed JSON message.
-pub async fn write_message<W: AsyncWriteExt + Unpin>(
+pub async fn write_message<W: AsyncWrite + Unpin>(
     writer: &mut W,
     msg: &serde_json::Value,
-) -> std::io::Result<()> {
+) -> io::Result<()> {
     let payload = serde_json::to_vec(msg)?;
 
-    if payload.len() > 1024 * 1024 {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
+    if payload.len() > MAX_OUTBOUND_MESSAGE_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
             "message exceeds 1 MiB outbound limit",
         ));
     }
@@ -73,9 +71,17 @@ pub struct RpcRequest {
 }
 
 impl RpcRequest {
+    /// Construct a request with the default CLI request ID.
+    ///
+    /// The CLI sends one request per socket connection, and the mediator rewrites
+    /// this ID to a process-wide unique value before forwarding it to the browser.
     pub fn new(method: impl Into<String>, params: serde_json::Value) -> Self {
+        Self::with_id(DEFAULT_REQUEST_ID, method, params)
+    }
+
+    pub fn with_id(id: u64, method: impl Into<String>, params: serde_json::Value) -> Self {
         Self {
-            id: 1,
+            id,
             method: method.into(),
             params,
         }
@@ -93,6 +99,17 @@ pub struct RpcResponse<T = serde_json::Value> {
 }
 
 impl<T> RpcResponse<T> {
+    pub fn into_result_for_request(self, request_id: u64) -> Result<T, String> {
+        if self.id != request_id {
+            return Err(format!(
+                "response id {} did not match request id {}",
+                self.id, request_id
+            ));
+        }
+
+        self.into_result()
+    }
+
     pub fn into_result(self) -> Result<T, String> {
         if let Some(error) = self.error {
             return Err(json_error_message(&error));
@@ -511,6 +528,29 @@ mod tests {
     #[test]
     fn impossible_pid_is_not_alive() {
         assert!(!is_pid_alive(u32::MAX));
+    }
+
+    #[test]
+    fn request_with_id_preserves_caller_id() {
+        let request = RpcRequest::with_id(42, LIST_TABS_METHOD, serde_json::json!({}));
+
+        assert_eq!(request.id, 42);
+        assert_eq!(request.method, LIST_TABS_METHOD);
+    }
+
+    #[test]
+    fn response_id_mismatch_is_rejected() {
+        let response = RpcResponse {
+            id: 2,
+            result: Some("ok".to_string()),
+            error: None,
+        };
+
+        let error = response
+            .into_result_for_request(1)
+            .expect_err("mismatched response id should fail");
+
+        assert_eq!(error, "response id 2 did not match request id 1");
     }
 
     #[cfg(unix)]

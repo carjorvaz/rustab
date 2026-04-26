@@ -65,12 +65,14 @@ pub async fn send_rpc<T>(socket: &BrowserSocket, request: &RpcRequest) -> Result
 where
     T: DeserializeOwned,
 {
-    let request = serde_json::to_value(request).map_err(|e| format!("encode request: {e}"))?;
-    let response = send_request(&socket.path, &request).await?;
+    let request_id = request.id;
+    let request_value =
+        serde_json::to_value(request).map_err(|e| format!("encode request: {e}"))?;
+    let response = send_request(&socket.path, &request_value).await?;
     let response: RpcResponse<T> =
         serde_json::from_value(response).map_err(|e| format!("invalid response: {e}"))?;
 
-    response.into_result()
+    response.into_result_for_request(request_id)
 }
 
 async fn send_request(socket_path: &std::path::Path, request: &Value) -> Result<Value, String> {
