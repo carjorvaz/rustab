@@ -158,10 +158,11 @@ For Home Manager + Brave on Linux, that policy can be installed through the usua
 
 Rustab includes a tag-driven GitHub Actions workflow at `.github/workflows/release.yml` that automates the clean GitHub-hosted path:
 
-- verifies that Cargo, Chromium, Firefox, and the committed signed Firefox XPI all agree on `X.Y.Z`, and that the signed Firefox XPI still matches the checked-in Firefox extension source
-- runs tests and flake checks
-- signs `rustab-<version>.crx`
+- verifies that Cargo, Chromium, and Firefox source metadata agree on `X.Y.Z`
+- runs formatting, clippy, and tests
 - signs `rustab@rustab.dev.xpi`
+- runs flake checks after the freshly signed XPI is in place
+- signs `rustab-<version>.crx`
 - uploads both browser artifacts to GitHub Releases
 - deploys `updates.xml` and `extension-settings.json` to GitHub Pages under `/chromium/`
 

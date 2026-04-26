@@ -16,6 +16,7 @@ DEFAULT_EXTENSION_ID = "nddbmnpippfilnjoebpcnfbpebnllbgo"
 EXTENSION_FILES = [
     "manifest.json",
     "background.js",
+    "background_core.js",
     "icon48.png",
     "icon128.png",
 ]

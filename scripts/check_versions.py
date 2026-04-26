@@ -15,9 +15,11 @@ SIGNED_FIREFOX_XPI = REPO_ROOT / "extensions" / "firefox-signed" / "rustab@rusta
 FIREFOX_EXTENSION_FILES = [
     "manifest.json",
     "background.js",
+    "background_core.js",
     "icon48.png",
     "icon128.png",
 ]
+SHARED_EXTENSION_CORE = REPO_ROOT / "extensions" / "shared" / "background_core.js"
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +34,14 @@ def parse_args() -> argparse.Namespace:
         "--print-version",
         action="store_true",
         help="Print the canonical Rustab version after validation succeeds.",
+    )
+    parser.add_argument(
+        "--source-only",
+        action="store_true",
+        help=(
+            "Validate only Cargo and source browser manifests. This is useful "
+            "early in release workflows before a freshly signed Firefox XPI exists."
+        ),
     )
     return parser.parse_args()
 
@@ -64,7 +74,12 @@ def read_signed_firefox_manifest(path: Path) -> dict:
 
 def signed_firefox_file_bytes(path: Path, relative_name: str) -> bytes:
     with zipfile.ZipFile(path) as archive:
-        return archive.read(relative_name)
+        try:
+            return archive.read(relative_name)
+        except KeyError as error:
+            raise FileNotFoundError(
+                f"Signed Firefox XPI is missing {relative_name}"
+            ) from error
 
 
 def firefox_addon_id(manifest: dict) -> str:
@@ -77,14 +92,17 @@ def main() -> int:
     cargo_version = read_workspace_version(CARGO_TOML)
     chrome_manifest = read_json(CHROME_MANIFEST)
     firefox_manifest = read_json(FIREFOX_MANIFEST)
-    signed_firefox_manifest = read_signed_firefox_manifest(SIGNED_FIREFOX_XPI)
+    signed_firefox_manifest = (
+        None if args.source_only else read_signed_firefox_manifest(SIGNED_FIREFOX_XPI)
+    )
 
     observed_versions = {
         "Cargo workspace": cargo_version,
         "Chromium manifest": chrome_manifest["version"],
         "Firefox manifest": firefox_manifest["version"],
-        "Signed Firefox XPI": signed_firefox_manifest["version"],
     }
+    if signed_firefox_manifest is not None:
+        observed_versions["Signed Firefox XPI"] = signed_firefox_manifest["version"]
 
     mismatches = [
         f"{label} has version {observed!r}, expected {cargo_version!r}"
@@ -93,29 +111,46 @@ def main() -> int:
     ]
 
     firefox_manifest_id = firefox_addon_id(firefox_manifest)
-    signed_firefox_id = firefox_addon_id(signed_firefox_manifest)
-    if signed_firefox_id != firefox_manifest_id:
-        mismatches.append(
-            "Signed Firefox XPI has addon id "
-            f"{signed_firefox_id!r}, expected {firefox_manifest_id!r}"
-        )
+    signed_firefox_id = None
+    if signed_firefox_manifest is not None:
+        signed_firefox_id = firefox_addon_id(signed_firefox_manifest)
+        if signed_firefox_id != firefox_manifest_id:
+            mismatches.append(
+                "Signed Firefox XPI has addon id "
+                f"{signed_firefox_id!r}, expected {firefox_manifest_id!r}"
+            )
 
-    for relative_name in FIREFOX_EXTENSION_FILES:
-        source_path = FIREFOX_MANIFEST.parent / relative_name
-        if relative_name == "manifest.json":
-            source_json = json.loads(source_path.read_text())
-            signed_json = json.loads(signed_firefox_file_bytes(SIGNED_FIREFOX_XPI, relative_name))
-            if signed_json != source_json:
+        for relative_name in FIREFOX_EXTENSION_FILES:
+            source_path = FIREFOX_MANIFEST.parent / relative_name
+            try:
+                signed_file_bytes = signed_firefox_file_bytes(
+                    SIGNED_FIREFOX_XPI, relative_name
+                )
+            except FileNotFoundError as error:
+                mismatches.append(str(error))
+                continue
+
+            if relative_name == "manifest.json":
+                source_json = json.loads(source_path.read_text())
+                signed_json = json.loads(signed_file_bytes)
+                if signed_json != source_json:
+                    mismatches.append(
+                        f"Signed Firefox XPI {relative_name} differs from extensions/firefox/{relative_name}"
+                    )
+                continue
+
+            source_bytes = source_path.read_bytes()
+            if signed_file_bytes != source_bytes:
                 mismatches.append(
                     f"Signed Firefox XPI {relative_name} differs from extensions/firefox/{relative_name}"
                 )
-            continue
 
-        source_bytes = source_path.read_bytes()
-        signed_bytes = signed_firefox_file_bytes(SIGNED_FIREFOX_XPI, relative_name)
-        if signed_bytes != source_bytes:
+    shared_core = SHARED_EXTENSION_CORE.read_bytes()
+    for browser in ["chrome", "firefox"]:
+        core_path = REPO_ROOT / "extensions" / browser / "background_core.js"
+        if core_path.read_bytes() != shared_core:
             mismatches.append(
-                f"Signed Firefox XPI {relative_name} differs from extensions/firefox/{relative_name}"
+                f"extensions/{browser}/background_core.js differs from extensions/shared/background_core.js"
             )
 
     if mismatches:
@@ -130,10 +165,11 @@ def main() -> int:
     print(f"rustab version: {cargo_version}")
     print(f"chromium extension: {chrome_manifest['version']}")
     print(f"firefox extension: {firefox_manifest['version']} ({firefox_manifest_id})")
-    print(
-        "signed firefox xpi: "
-        f"{signed_firefox_manifest['version']} ({signed_firefox_id})"
-    )
+    if signed_firefox_manifest is not None:
+        print(
+            "signed firefox xpi: "
+            f"{signed_firefox_manifest['version']} ({signed_firefox_id})"
+        )
     return 0
 
 

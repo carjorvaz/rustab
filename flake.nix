@@ -116,6 +116,7 @@
           installPhase = ''
             install -Dm444 extensions/chrome/manifest.json $out/manifest.json
             install -Dm444 extensions/chrome/background.js $out/background.js
+            install -Dm444 extensions/chrome/background_core.js $out/background_core.js
             install -Dm444 extensions/chrome/icon48.png $out/icon48.png
             install -Dm444 extensions/chrome/icon128.png $out/icon128.png
           '';
@@ -147,7 +148,7 @@
           inherit version;
           src = self;
 
-          cargoHash = "sha256-C+b4oFmYbRgM1WGIpn14YSYsA9wsrmY2ZFKu5lnAh1w=";
+          cargoHash = "sha256-DeipIR/JRCl5nuLm8ic/f6c98uSx7oLxPse4PHY7PVM=";
 
           postInstall = ''
             # Firefox native messaging host manifest

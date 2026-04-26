@@ -1,4 +1,7 @@
-use rustab_protocol::{is_pid_alive, read_message, socket_dir, socket_path, write_message};
+use rustab_protocol::{
+    is_pid_alive, prepare_socket_dir, read_message, socket_path, write_message,
+    REQUEST_TIMEOUT_SECS,
+};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,18 +26,13 @@ async fn main() {
     let pid = std::process::id();
     log!("starting (browser={browser}, pid={pid})");
 
-    let sock_dir = socket_dir();
-
-    // Create socket directory with 0700 permissions
-    if let Err(e) = std::fs::create_dir_all(&sock_dir) {
-        log!("failed to create socket dir: {e}");
-        std::process::exit(1);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&sock_dir, std::fs::Permissions::from_mode(0o700));
-    }
+    let sock_dir = match prepare_socket_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            log!("failed to prepare socket dir: {e}");
+            std::process::exit(1);
+        }
+    };
 
     cleanup_stale_sockets(&sock_dir);
 
@@ -167,7 +165,8 @@ async fn handle_client(
         }
 
         // Wait for response with timeout
-        let response = tokio::time::timeout(std::time::Duration::from_secs(10), rx).await;
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS), rx).await;
         match response {
             Ok(Ok(mut val)) => {
                 // Restore the client's original ID

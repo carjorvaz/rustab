@@ -1,5 +1,14 @@
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+pub const REQUEST_TIMEOUT_SECS: u64 = 10;
+pub const LIST_TABS_METHOD: &str = "list_tabs";
+pub const LIST_WINDOWS_METHOD: &str = "list_windows";
+pub const CLOSE_TABS_METHOD: &str = "close_tabs";
+pub const ACTIVATE_TAB_METHOD: &str = "activate_tab";
+pub const OPEN_TAB_METHOD: &str = "open_tab";
+pub const MOVE_TABS_METHOD: &str = "move_tabs";
 
 /// Read a native-messaging-framed JSON message.
 ///
@@ -54,6 +63,93 @@ pub async fn write_message<W: AsyncWriteExt + Unpin>(
     Ok(())
 }
 
+/// Request envelope shared by the CLI, mediator, and browser extension.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct RpcRequest {
+    pub id: u64,
+    pub method: String,
+    #[serde(default)]
+    pub params: serde_json::Value,
+}
+
+impl RpcRequest {
+    pub fn new(method: impl Into<String>, params: serde_json::Value) -> Self {
+        Self {
+            id: 1,
+            method: method.into(),
+            params,
+        }
+    }
+}
+
+/// Response envelope for browser-extension RPC replies.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct RpcResponse<T = serde_json::Value> {
+    pub id: u64,
+    #[serde(default = "missing_result")]
+    pub result: Option<T>,
+    #[serde(default)]
+    pub error: Option<serde_json::Value>,
+}
+
+impl<T> RpcResponse<T> {
+    pub fn into_result(self) -> Result<T, String> {
+        if let Some(error) = self.error {
+            return Err(json_error_message(&error));
+        }
+
+        self.result.ok_or_else(|| "invalid response".to_string())
+    }
+}
+
+fn json_error_message(error: &serde_json::Value) -> String {
+    error
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| error.to_string())
+}
+
+fn missing_result<T>() -> Option<T> {
+    None
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+pub struct TabInfo {
+    pub id: u64,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub active: bool,
+    pub window_id: u64,
+    #[serde(default)]
+    pub index: i64,
+    #[serde(default)]
+    pub pinned: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+pub struct WindowInfo {
+    pub id: u64,
+    #[serde(default)]
+    pub focused: bool,
+    #[serde(default, rename = "type")]
+    pub window_type: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub incognito: bool,
+    #[serde(default)]
+    pub tab_count: u64,
+    #[serde(default)]
+    pub active_tab_id: Option<u64>,
+    #[serde(default)]
+    pub active_tab_title: String,
+    #[serde(default)]
+    pub active_tab_url: String,
+}
+
 /// Socket directory: `/tmp/rustab-{uid}/`
 pub fn socket_dir() -> PathBuf {
     #[cfg(unix)]
@@ -67,6 +163,93 @@ pub fn socket_dir() -> PathBuf {
         let username = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
         PathBuf::from(format!("/tmp/rustab-{username}"))
     }
+}
+
+/// Create and validate the per-user socket directory before binding sockets.
+pub fn prepare_socket_dir() -> io::Result<PathBuf> {
+    let dir = socket_dir();
+
+    #[cfg(unix)]
+    {
+        match std::fs::create_dir(&dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = trusted_socket_dir_metadata(&dir)?;
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode != 0o700 {
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+        validate_socket_dir(&dir)?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(&dir)?;
+    }
+
+    Ok(dir)
+}
+
+/// Ensure an existing socket directory is owned by the current user and private.
+pub fn validate_socket_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let metadata = trusted_socket_dir_metadata(dir)?;
+
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("socket directory permissions are {mode:o}, expected 700"),
+            ));
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let metadata = std::fs::metadata(dir)?;
+        if !metadata.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "socket path is not a directory",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn trusted_socket_dir_metadata(dir: &Path) -> io::Result<std::fs::Metadata> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = std::fs::symlink_metadata(dir)?;
+    if !metadata.file_type().is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "socket path is not a directory",
+        ));
+    }
+
+    let uid = unsafe { geteuid() };
+    if metadata.uid() != uid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "socket directory is owned by uid {}, expected uid {}",
+                metadata.uid(),
+                uid
+            ),
+        ));
+    }
+
+    Ok(metadata)
 }
 
 /// Socket path for a given browser and PID: `/tmp/rustab-{user}/{browser}-{pid}.sock`
@@ -330,6 +513,34 @@ mod tests {
         assert!(!is_pid_alive(u32::MAX));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn validates_private_socket_dirs() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_test_dir("private-socket-dir");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        assert!(validate_socket_dir(&dir).is_ok());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_shared_socket_dirs() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_test_dir("shared-socket-dir");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let error = validate_socket_dir(&dir).expect_err("shared dir should be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn parses_socket_names() {
         assert_eq!(
@@ -401,6 +612,19 @@ mod tests {
     #[test]
     fn formats_full_window_ids() {
         assert_eq!(format_window_id("b", 12345, 42), "b.12345.w.42");
+    }
+
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "rustab-protocol-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).expect("create temp dir");
+        dir
     }
 
     #[cfg(target_os = "linux")]

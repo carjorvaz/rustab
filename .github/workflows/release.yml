@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="$(python3 scripts/check_versions.py --print-version)"
+          version="$(python3 scripts/check_versions.py --source-only --print-version)"
 
           tag="${GITHUB_REF_NAME}"
           tag_version="${tag#v}"
@@ -72,9 +72,6 @@ jobs:
       - name: Run tests
         run: nix develop -c cargo test
 
-      - name: Run flake checks
-        run: nix flake check --print-build-logs
-
       - name: Write Chromium extension signing key
         env:
           CHROMIUM_EXTENSION_KEY_PEM: ${{ secrets.CHROMIUM_EXTENSION_KEY_PEM }}
@@ -87,18 +84,6 @@ jobs:
 
           umask 077
           printf '%s\n' "$CHROMIUM_EXTENSION_KEY_PEM" > rustab-chromium.pem
-
-      - name: Package Chromium release bundle
-        run: |
-          set -euo pipefail
-          nix shell .#package-chromium-release nixpkgs#chromium -c \
-            package-chromium-release \
-            --key "$PWD/rustab-chromium.pem" \
-            --base-url "${{ steps.meta.outputs.pages_base_url }}" \
-            --codebase-url "${{ steps.meta.outputs.release_asset_url }}" \
-            --out-dir "$PWD/dist/chromium" \
-            --browser-binary "$(command -v chromium)" \
-            --browser-arg=--no-sandbox
 
       - name: Package signed Firefox release XPI
         env:
@@ -115,6 +100,21 @@ jobs:
           mkdir -p dist/firefox
           cp "extensions/firefox-signed/${{ steps.meta.outputs.firefox_xpi_name }}" \
             "dist/firefox/${{ steps.meta.outputs.firefox_xpi_name }}"
+
+      - name: Run flake checks
+        run: nix flake check --print-build-logs
+
+      - name: Package Chromium release bundle
+        run: |
+          set -euo pipefail
+          nix shell .#package-chromium-release nixpkgs#chromium -c \
+            package-chromium-release \
+            --key "$PWD/rustab-chromium.pem" \
+            --base-url "${{ steps.meta.outputs.pages_base_url }}" \
+            --codebase-url "${{ steps.meta.outputs.release_asset_url }}" \
+            --out-dir "$PWD/dist/chromium" \
+            --browser-binary "$(command -v chromium)" \
+            --browser-arg=--no-sandbox
 
       - name: Publish release assets
         env:
