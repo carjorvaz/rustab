@@ -46,6 +46,41 @@ function handleMessage(msg) {
   });
 }
 
+function summarizeTab(t) {
+  return {
+    id: t.id,
+    title: t.title || "",
+    url: t.url || "",
+    active: t.active,
+    window_id: t.windowId,
+    index: t.index,
+    pinned: t.pinned || false,
+  };
+}
+
+function summarizeWindow(w) {
+  const tabs = w.tabs || [];
+  const activeTab = tabs.find((t) => t.active);
+
+  return {
+    id: w.id,
+    focused: w.focused || false,
+    type: w.type || "",
+    state: w.state || "",
+    incognito: w.incognito || false,
+    tab_count: tabs.length,
+    active_tab_id: activeTab?.id ?? null,
+    active_tab_title: activeTab?.title || "",
+    active_tab_url: activeTab?.url || "",
+  };
+}
+
+function requireInteger(value, name) {
+  if (!Number.isInteger(value)) {
+    throw new Error(`${name} must be an integer`);
+  }
+}
+
 async function executeMethod(id, method, params) {
   try {
     let result;
@@ -53,13 +88,16 @@ async function executeMethod(id, method, params) {
     switch (method) {
       case "list_tabs": {
         const tabs = await browser.tabs.query({});
-        result = tabs.map((t) => ({
-          id: t.id,
-          title: t.title || "",
-          url: t.url || "",
-          active: t.active,
-          window_id: t.windowId,
-        }));
+        result = tabs.map(summarizeTab);
+        break;
+      }
+
+      case "list_windows": {
+        const windows = await browser.windows.getAll({
+          populate: true,
+          windowTypes: ["normal"],
+        });
+        result = windows.map(summarizeWindow);
         break;
       }
 
@@ -69,6 +107,7 @@ async function executeMethod(id, method, params) {
           safeSend({ id, error: "tab_ids must be a non-empty array" });
           return;
         }
+        ids.forEach((tabId) => requireInteger(tabId, "tab_ids entries"));
         await browser.tabs.remove(ids);
         result = { ok: true, closed: ids.length };
         break;
@@ -80,6 +119,7 @@ async function executeMethod(id, method, params) {
           safeSend({ id, error: "tab_id must be a number" });
           return;
         }
+        requireInteger(tabId, "tab_id");
         await browser.tabs.update(tabId, { active: true });
         const tab = await browser.tabs.get(tabId);
         await browser.windows.update(tab.windowId, { focused: true });
@@ -93,11 +133,43 @@ async function executeMethod(id, method, params) {
           safeSend({ id, error: "url must be a non-empty string" });
           return;
         }
-        const newTab = await browser.tabs.create({ url });
+
+        const createProperties = { url };
+        if (params.window_id !== undefined) {
+          requireInteger(params.window_id, "window_id");
+          createProperties.windowId = params.window_id;
+        }
+        if (params.index !== undefined) {
+          requireInteger(params.index, "index");
+          createProperties.index = params.index;
+        }
+
+        const newTab = await browser.tabs.create(createProperties);
+        result = summarizeTab(newTab);
+        break;
+      }
+
+      case "move_tabs": {
+        const ids = params.tab_ids;
+        if (!Array.isArray(ids) || ids.length === 0) {
+          safeSend({ id, error: "tab_ids must be a non-empty array" });
+          return;
+        }
+        ids.forEach((tabId) => requireInteger(tabId, "tab_ids entries"));
+        requireInteger(params.window_id, "window_id");
+
+        const index = params.index ?? -1;
+        requireInteger(index, "index");
+
+        const movedTabs = await browser.tabs.move(ids, {
+          windowId: params.window_id,
+          index,
+        });
+        const movedArray = Array.isArray(movedTabs) ? movedTabs : [movedTabs];
         result = {
-          id: newTab.id,
-          title: newTab.title || "",
-          url: newTab.url || url,
+          ok: true,
+          moved: movedArray.length,
+          tabs: movedArray.map(summarizeTab),
         };
         break;
       }

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "rustab",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Browser tab management from the terminal",
   "key": "KegWw3KY2/5vqvRDOCEovfsDitb+eseDbHPjp27YiAgp6BbDcpjb/m+q9EM4ISi9+wOK1v56x4Nsc+OnbtiICCnoFsNymNv+b6r0QzghKL37A4rW/nrHg2xz46du2IgIKegWw3KY2/5vqvRDOCEovfsDitb+eseDbHPjp27YiAgp6BbDcpjb/m+q9EM4ISi9+wOK1v56x4Nsc+OnbtiICCnoFsNymNv+b6r0QzghKL37A4rW/nrHg2xz46du2IgIKegWw3KY2/5vqvRDOCEovfsDitb+eseDbHPjp27YiAgp6BbDcpjb/m+q9EM4ISi9+wOK1v56x4Nsc+OnbtiICA==",
   "permissions": [

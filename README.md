@@ -16,7 +16,8 @@ $ rustab list | grep Reddit | rustab close
 
 ## Features
 
-- List, close, activate, and open browser tabs from the CLI
+- List, close, move, activate, and open browser tabs from the CLI
+- List browser windows and target tab operations by window
 - Supports Chrome, Brave, Firefox, Chromium, Orion, Edge, Vivaldi, Zen
 - List read-only synced Orion tabs from local macOS state
 - Pipe-friendly: `rustab list | grep pattern | rustab close`
@@ -34,6 +35,8 @@ Browser extension  <--native messaging (stdio)-->  rustab-mediator  <--Unix sock
 Each browser instance gets its own mediator process and Unix socket at `/tmp/rustab-{uid}/{browser}-{pid}.sock`. The CLI discovers mediators by scanning this directory and filtering out stale sockets (dead PIDs).
 
 Rustab emits full tab IDs that include the browser prefix, mediator PID, and browser tab ID: `c.18452.123`, `b.20881.456`, `f.19001.789`, etc. The legacy two-part form (`c.123`) is still accepted when only one matching browser instance is connected.
+
+Window IDs use the same scoped form with a `w` marker: `c.18452.w.12`, `b.20881.w.34`, etc. Raw browser window IDs are accepted by commands that target a window when only one browser instance is in play, but the scoped IDs from `rustab windows` are the safest form for scripts.
 
 ## Installation
 
@@ -207,14 +210,20 @@ Then load the browser extension:
 rustab list                                # list all tabs (TSV)
 rustab list --format json                  # list all tabs (JSON)
 rustab list --browser brave                # list tabs from Brave only
+rustab windows                             # list browser windows
+rustab windows --format json               # list windows with scoped IDs and active tabs
 rustab synced list --browser orion         # list synced Orion tabs cached locally on macOS
 rustab synced list --browser orion --archived # inspect the newest non-empty archived Orion sync snapshot
 rustab synced list --format json           # list synced tabs as JSON
 rustab close b.18452.42 b.18452.99         # close specific tabs
 rustab list | grep github | rustab close   # pipe pattern
+rustab move --to-window b.18452.w.7 b.18452.42 # move a tab to a window
+rustab list | grep YouTube | rustab move --to-window b.18452.w.7 # consolidate tabs
+rustab move --to-tab b.18452.99 b.18452.42 # move a tab to the window containing another tab
 rustab activate c.18452.42                 # focus a tab
 rustab open https://example.com            # open URL in the first responsive browser
 rustab open -b firefox https://x.com       # open in specific browser
+rustab open --window b.18452.w.7 https://example.com # open in a specific window
 rustab clients                             # show connected browsers, mediator PIDs, and sockets
 ```
 

@@ -104,9 +104,21 @@ pub struct TabRef<'a> {
     pub tab_id: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowRef<'a> {
+    pub prefix: &'a str,
+    pub mediator_pid: Option<u32>,
+    pub window_id: u64,
+}
+
 /// Format a tab ID using the browser prefix, mediator PID, and browser tab ID.
 pub fn format_tab_id(prefix: &str, mediator_pid: u32, tab_id: u64) -> String {
     format!("{prefix}.{mediator_pid}.{tab_id}")
+}
+
+/// Format a window ID using the browser prefix, mediator PID, and browser window ID.
+pub fn format_window_id(prefix: &str, mediator_pid: u32, window_id: u64) -> String {
+    format!("{prefix}.{mediator_pid}.w.{window_id}")
 }
 
 /// Parse a tab ID.
@@ -133,6 +145,28 @@ pub fn parse_tab_id(s: &str) -> Option<TabRef<'_>> {
         mediator_pid,
         tab_id,
     })
+}
+
+/// Parse a window ID.
+///
+/// Accepts either the current `prefix.pid.w.window_id` format or the legacy
+/// `prefix.w.window_id` shorthand for single-mediator setups.
+pub fn parse_window_id(s: &str) -> Option<WindowRef<'_>> {
+    let parts = s.split('.').collect::<Vec<_>>();
+
+    match parts.as_slice() {
+        [prefix, pid_str, "w", window_id_str] if !prefix.is_empty() => Some(WindowRef {
+            prefix,
+            mediator_pid: Some(pid_str.parse().ok()?),
+            window_id: window_id_str.parse().ok()?,
+        }),
+        [prefix, "w", window_id_str] if !prefix.is_empty() => Some(WindowRef {
+            prefix,
+            mediator_pid: None,
+            window_id: window_id_str.parse().ok()?,
+        }),
+        _ => None,
+    }
 }
 
 #[cfg(unix)]
@@ -331,6 +365,42 @@ mod tests {
     #[test]
     fn formats_full_tab_ids() {
         assert_eq!(format_tab_id("b", 12345, 42), "b.12345.42");
+    }
+
+    #[test]
+    fn parses_full_window_ids() {
+        assert_eq!(
+            parse_window_id("b.12345.w.42"),
+            Some(WindowRef {
+                prefix: "b",
+                mediator_pid: Some(12345),
+                window_id: 42,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_legacy_window_ids() {
+        assert_eq!(
+            parse_window_id("b.w.42"),
+            Some(WindowRef {
+                prefix: "b",
+                mediator_pid: None,
+                window_id: 42,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_window_ids() {
+        assert_eq!(parse_window_id("b.12345.42"), None);
+        assert_eq!(parse_window_id("b.12345.window.42"), None);
+        assert_eq!(parse_window_id(".12345.w.42"), None);
+    }
+
+    #[test]
+    fn formats_full_window_ids() {
+        assert_eq!(format_window_id("b", 12345, 42), "b.12345.w.42");
     }
 
     #[cfg(target_os = "linux")]
