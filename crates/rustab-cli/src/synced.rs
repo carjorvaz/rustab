@@ -1,6 +1,10 @@
+#[cfg(target_os = "macos")]
 use plist::{Dictionary, Value};
+#[cfg(target_os = "macos")]
 use serde_json::Value as JsonValue;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncedTab {
@@ -44,37 +48,35 @@ fn list_synced_tabs_from_home(
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn list_orion_synced_tabs(home: &Path, archived: bool) -> Result<Vec<SyncedTab>, String> {
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (home, archived);
+    let _ = (home, archived);
+    Ok(vec![])
+}
+
+#[cfg(target_os = "macos")]
+fn list_orion_synced_tabs(home: &Path, archived: bool) -> Result<Vec<SyncedTab>, String> {
+    let defaults_dir = home.join("Library/Application Support/Orion/Defaults");
+    let current_session_path = defaults_dir.join("browser_session_state.plist");
+    let current_snapshot_path = defaults_dir.join(".local_named_windows.plist");
+
+    if !archived {
+        if current_session_path.is_file() {
+            let tabs = parse_orion_current_session_state(&current_session_path)?;
+            if !tabs.is_empty() {
+                return Ok(tabs);
+            }
+        }
+
+        if current_snapshot_path.is_file() {
+            return parse_orion_synced_snapshot(&current_snapshot_path, "current");
+        }
+
         return Ok(vec![]);
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        let defaults_dir = home.join("Library/Application Support/Orion/Defaults");
-        let current_session_path = defaults_dir.join("browser_session_state.plist");
-        let current_snapshot_path = defaults_dir.join(".local_named_windows.plist");
-
-        if !archived {
-            if current_session_path.is_file() {
-                let tabs = parse_orion_current_session_state(&current_session_path)?;
-                if !tabs.is_empty() {
-                    return Ok(tabs);
-                }
-            }
-
-            if current_snapshot_path.is_file() {
-                return parse_orion_synced_snapshot(&current_snapshot_path, "current");
-            }
-
-            return Ok(vec![]);
-        }
-
-        latest_non_empty_orion_snapshot(&defaults_dir)
-            .map(|result| result.map(|(_, tabs)| tabs).unwrap_or_default())
-    }
+    latest_non_empty_orion_snapshot(&defaults_dir)
+        .map(|result| result.map(|(_, tabs)| tabs).unwrap_or_default())
 }
 
 #[cfg(target_os = "macos")]
@@ -269,18 +271,22 @@ fn parse_orion_synced_snapshot(path: &Path, source: &str) -> Result<Vec<SyncedTa
     Ok(tabs)
 }
 
+#[cfg(target_os = "macos")]
 fn dict_at<'a>(dict: &'a Dictionary, key: &str) -> Option<&'a Dictionary> {
     dict.get(key)?.as_dictionary()
 }
 
+#[cfg(target_os = "macos")]
 fn array_at<'a>(dict: &'a Dictionary, key: &str) -> Option<&'a [Value]> {
     Some(dict.get(key)?.as_array()?.as_slice())
 }
 
+#[cfg(target_os = "macos")]
 fn bool_at(dict: &Dictionary, key: &str) -> Option<bool> {
     dict.get(key)?.as_boolean()
 }
 
+#[cfg(target_os = "macos")]
 fn string_at(dict: &Dictionary, key: &str) -> Option<String> {
     match dict.get(key)? {
         Value::String(value) => Some(value.clone()),
@@ -288,10 +294,12 @@ fn string_at(dict: &Dictionary, key: &str) -> Option<String> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn json_string_at(value: &JsonValue, key: &str) -> Option<String> {
     json_string(value.get(key)?)
 }
 
+#[cfg(target_os = "macos")]
 fn json_string(value: &JsonValue) -> Option<String> {
     match value {
         JsonValue::String(string) => Some(string.clone()),
@@ -299,6 +307,7 @@ fn json_string(value: &JsonValue) -> Option<String> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn json_scalar_string(value: &JsonValue) -> String {
     match value {
         JsonValue::String(string) => string.clone(),
@@ -309,6 +318,7 @@ fn json_scalar_string(value: &JsonValue) -> String {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn non_null_string(value: Option<String>) -> Option<String> {
     match value.as_deref() {
         Some("") | Some("$null") => None,
@@ -316,6 +326,7 @@ fn non_null_string(value: Option<String>) -> Option<String> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn preferred_window_name(window_dict: &Dictionary, inner_window: &JsonValue) -> Option<String> {
     let outer_name = non_null_string(string_at(window_dict, "windowName"));
     if let Some(name) = outer_name {
@@ -327,6 +338,7 @@ fn preferred_window_name(window_dict: &Dictionary, inner_window: &JsonValue) -> 
     non_null_string(json_string_at(inner_window, "title"))
 }
 
+#[cfg(target_os = "macos")]
 fn date_string_at(dict: &Dictionary, key: &str) -> Option<String> {
     match dict.get(key)? {
         Value::Date(value) => Some(value.to_xml_format()),
@@ -338,8 +350,10 @@ fn date_string_at(dict: &Dictionary, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
     use std::time::Duration;
 
+    #[cfg(target_os = "macos")]
     const ORION_SYNCED_TABS_FIXTURE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -373,9 +387,10 @@ mod tests {
     </array>
   </dict>
 </array>
-</plist>
-"#;
+    </plist>
+    "#;
 
+    #[cfg(target_os = "macos")]
     const ORION_CURRENT_SESSION_FIXTURE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -397,22 +412,24 @@ mod tests {
     </dict>
   </dict>
 </dict>
-</plist>
-"#;
+    </plist>
+    "#;
 
+    #[cfg(target_os = "macos")]
     const EMPTY_ORION_SYNCED_TABS_FIXTURE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <array/>
-</plist>
-"#;
+    </plist>
+    "#;
 
+    #[cfg(target_os = "macos")]
     const EMPTY_ORION_CURRENT_SESSION_FIXTURE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict/>
 </plist>
-"#;
+    "#;
 
     #[cfg(target_os = "macos")]
     #[test]
@@ -552,6 +569,7 @@ mod tests {
         assert!(error.contains("Synced tabs are not supported for browser 'brave' yet"));
     }
 
+    #[cfg(target_os = "macos")]
     fn write_temp_fixture(name: &str, contents: &str) -> PathBuf {
         let dir = temp_home_dir(name);
         let path = dir.join("fixture.plist");
@@ -559,6 +577,7 @@ mod tests {
         path
     }
 
+    #[cfg(target_os = "macos")]
     fn temp_home_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "rustab-cli-{name}-{}-{}",

@@ -176,7 +176,7 @@ fn manifest_path_string(path: &Path) -> Result<&str, String> {
         .ok_or_else(|| format!("manifest path is not valid UTF-8: {}", path.display()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 
