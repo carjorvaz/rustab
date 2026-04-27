@@ -1,10 +1,14 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
       - master
+
+permissions:
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -16,6 +20,7 @@ concurrency:
 jobs:
   checks:
     name: Checks
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +37,17 @@ jobs:
 
       - name: Check formatting
         run: nix develop -c cargo fmt --all -- --check
+
+      - name: Check extension metadata
+        run: nix develop -c python3 scripts/check_versions.py
+
+      - name: Check extension JavaScript
+        run: |
+          node --check extensions/shared/background_core.js
+          node --check extensions/chrome/background.js
+          node --check extensions/chrome/background_core.js
+          node --check extensions/firefox/background.js
+          node --check extensions/firefox/background_core.js
 
       - name: Run clippy
         run: nix develop -c cargo clippy --workspace --all-targets -- -D warnings

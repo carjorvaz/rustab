@@ -59,6 +59,13 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
+      extensionJavascriptFiles = [
+        "extensions/shared/background_core.js"
+        "extensions/chrome/background.js"
+        "extensions/chrome/background_core.js"
+        "extensions/firefox/background.js"
+        "extensions/firefox/background_core.js"
+      ];
       forAllSystems = f:
         nixpkgs.lib.genAttrs systems
           (system: f system nixpkgs.legacyPackages.${system});
@@ -210,6 +217,14 @@
         package-chromium-release = self.packages.${system}.package-chromium-release;
         chrome-extension = self.packages.${system}.chrome-extension;
         firefox-extension = self.packages.${system}.firefox-extension;
+        extension-js-syntax = pkgs.runCommand "rustab-extension-js-syntax" {
+          nativeBuildInputs = [ pkgs.nodejs ];
+        } ''
+          for file in ${nixpkgs.lib.escapeShellArgs extensionJavascriptFiles}; do
+            node --check "${self}/$file"
+          done
+          touch $out
+        '';
         rustab = self.packages.${system}.rustab;
       });
 
@@ -222,6 +237,7 @@
             rustfmt
             pkg-config
             python3
+            nodejs
             web-ext
           ];
         };

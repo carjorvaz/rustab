@@ -16,6 +16,7 @@ jobs:
   release:
     name: Publish Release
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
@@ -65,6 +66,14 @@ jobs:
 
       - name: Check formatting
         run: nix develop -c cargo fmt --all -- --check
+
+      - name: Check extension JavaScript
+        run: |
+          node --check extensions/shared/background_core.js
+          node --check extensions/chrome/background.js
+          node --check extensions/chrome/background_core.js
+          node --check extensions/firefox/background.js
+          node --check extensions/firefox/background_core.js
 
       - name: Run clippy
         run: nix develop -c cargo clippy --workspace --all-targets -- -D warnings
@@ -148,6 +157,7 @@ jobs:
     name: Deploy GitHub Pages
     needs: release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write
