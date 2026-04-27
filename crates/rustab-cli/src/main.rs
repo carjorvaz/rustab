@@ -1,5 +1,6 @@
 mod cli;
 mod client;
+mod doctor;
 mod input;
 mod install;
 mod listing;
@@ -12,6 +13,7 @@ use crate::client::{
     discover_sockets, resolve_socket, resolve_socket_for_tab_ref, resolve_socket_for_window_ref,
     same_socket, send_rpc, socket_for_raw_window_id, BrowserSocket,
 };
+use crate::doctor::cmd_doctor;
 use crate::input::{
     collect_tab_ids, parse_tab_ids, parse_window_arg, validate_move_index, validate_open_index,
     WindowArg,
@@ -52,6 +54,7 @@ async fn main() {
             index,
         } => cmd_open(&url, browser.as_deref(), window.as_deref(), index).await,
         Command::Clients => cmd_clients(),
+        Command::Doctor { browser } => cmd_doctor(browser.as_deref()).await,
         Command::Synced { command } => match command {
             SyncedCommand::List {
                 format,

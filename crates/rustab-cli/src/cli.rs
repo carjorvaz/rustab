@@ -2,7 +2,11 @@ use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "rustab", about = "Browser tab management from the terminal")]
+#[command(
+    name = "rustab",
+    version,
+    about = "Browser tab management from the terminal"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -75,6 +79,12 @@ pub enum Command {
     },
     /// Show connected browsers
     Clients,
+    /// Diagnose native messaging, extension, and mediator connectivity
+    Doctor {
+        /// Filter by browser (e.g. chrome, firefox, brave)
+        #[arg(short, long)]
+        browser: Option<String>,
+    },
     /// List read-only synced tabs discovered from local browser state
     Synced {
         #[command(subcommand)]

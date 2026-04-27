@@ -226,6 +226,7 @@ rustab open https://example.com            # open URL in the first responsive br
 rustab open -b firefox https://x.com       # open in specific browser
 rustab open --window b.18452.w.7 https://example.com # open in a specific window
 rustab clients                             # show connected browsers, mediator PIDs, and sockets
+rustab doctor                              # diagnose manifests, mediators, and extension support
 ```
 
 `rustab synced list` is intentionally read-only. Today it supports Orion on macOS by reading Orion's locally cached sync state. By default it reads the live `browser_session_state.plist` view when available, falling back to Orion's current synced-tab plist on older layouts; `--archived` is a debugging escape hatch for the newest non-empty backup snapshot. Orion's live session-state data does not appear to include a friendly device name, so current entries may omit `device_id` even when archived snapshots have one.

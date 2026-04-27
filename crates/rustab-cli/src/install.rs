@@ -128,7 +128,7 @@ fn build_manifest(
     }
 }
 
-fn manifest_target_dirs(home: &Path, browser: &BrowserManifestInfo) -> Vec<PathBuf> {
+pub(crate) fn manifest_target_dirs(home: &Path, browser: &BrowserManifestInfo) -> Vec<PathBuf> {
     let mut dirs = vec![home.join(browser.config_dir).join(browser.manifest_subdir)];
 
     #[cfg(target_os = "macos")]
