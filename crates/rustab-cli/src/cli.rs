@@ -53,7 +53,7 @@ pub enum Command {
         #[arg(long, value_name = "TAB_ID", conflicts_with = "to_window")]
         to_tab: Option<String>,
         /// Target index in the destination window (`-1` appends)
-        #[arg(long, default_value_t = -1)]
+        #[arg(long, default_value_t = -1, allow_negative_numbers = true)]
         index: i64,
         /// Tab IDs to move; reads from stdin if none given
         tab_ids: Vec<String>,
@@ -74,7 +74,7 @@ pub enum Command {
         #[arg(long, value_name = "WINDOW_ID")]
         window: Option<String>,
         /// Target index in the destination window
-        #[arg(long)]
+        #[arg(long, allow_negative_numbers = true)]
         index: Option<i64>,
     },
     /// Show connected browsers
@@ -99,6 +99,44 @@ pub enum Command {
         #[arg(long)]
         chrome_extension_id: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn move_accepts_space_separated_append_index() {
+        let cli = Cli::try_parse_from([
+            "rustab",
+            "move",
+            "--to-window",
+            "b.123.w.456",
+            "--index",
+            "-1",
+            "b.123.789",
+        ])
+        .expect("move --index -1 should parse");
+
+        let Command::Move { index, tab_ids, .. } = cli.command else {
+            panic!("expected move command");
+        };
+
+        assert_eq!(index, -1);
+        assert_eq!(tab_ids, ["b.123.789"]);
+    }
+
+    #[test]
+    fn open_accepts_negative_index_for_command_validation() {
+        let cli = Cli::try_parse_from(["rustab", "open", "https://example.com", "--index", "-1"])
+            .expect("open --index -1 should parse so validation can report the command error");
+
+        let Command::Open { index, .. } = cli.command else {
+            panic!("expected open command");
+        };
+
+        assert_eq!(index, Some(-1));
+    }
 }
 
 #[derive(Subcommand)]
