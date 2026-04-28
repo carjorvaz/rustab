@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "rustab-cli"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "clap",
  "libc",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "rustab-mediator"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rustab-protocol",
  "serde_json",
@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "rustab-protocol"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
  "serde_json",

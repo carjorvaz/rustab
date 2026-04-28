@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "rustab",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Browser tab management from the terminal",
   "permissions": [
     "nativeMessaging",
