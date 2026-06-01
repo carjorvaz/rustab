@@ -6,12 +6,15 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tokio::io::AsyncWrite;
 use tokio::net::UnixListener;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 /// Global monotonic counter for request IDs.
 /// Prevents collisions when multiple CLI clients send concurrent requests.
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+
+type PendingResponses = Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>;
 
 /// Log to stderr (stdout is reserved for native messaging).
 macro_rules! log {
@@ -58,8 +61,7 @@ async fn main() {
     let (browser_tx, mut browser_rx) = mpsc::channel::<Value>(64);
 
     // Pending responses: request_id -> oneshot sender
-    let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let pending: PendingResponses = Arc::new(Mutex::new(HashMap::new()));
 
     // Task: write to stdout (native messaging to browser extension)
     let stdout_handle = tokio::spawn(async move {
@@ -79,7 +81,7 @@ async fn main() {
         loop {
             match read_message(&mut stdin).await {
                 Ok(msg) => {
-                    if let Some(id) = msg.get("id").and_then(|v| v.as_u64()) {
+                    if let Some(id) = request_id(&msg) {
                         let mut map = pending_for_stdin.lock().await;
                         if let Some(sender) = map.remove(&id) {
                             let _ = sender.send(msg);
@@ -122,10 +124,29 @@ async fn main() {
     let _ = std::fs::remove_file(&sock_path);
 }
 
+fn request_id(message: &Value) -> Option<u64> {
+    message.get("id").and_then(Value::as_u64)
+}
+
+fn set_request_id(message: &mut Value, id: u64) {
+    message["id"] = json!(id);
+}
+
+async fn write_client_error<W>(writer: &mut W, client_id: Option<u64>, error: &str)
+where
+    W: AsyncWrite + Unpin,
+{
+    let response = match client_id {
+        Some(id) => json!({"id": id, "error": error}),
+        None => json!({"error": error}),
+    };
+    let _ = write_message(writer, &response).await;
+}
+
 async fn handle_client(
     stream: tokio::net::UnixStream,
     browser_tx: mpsc::Sender<Value>,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
+    pending: PendingResponses,
 ) {
     let (mut reader, mut writer) = stream.into_split();
 
@@ -135,17 +156,14 @@ async fn handle_client(
             Err(_) => break, // client disconnected
         };
 
-        let client_id = match msg.get("id").and_then(|v| v.as_u64()) {
-            Some(id) => id,
-            None => {
-                let _ = write_message(&mut writer, &json!({"error": "missing request id"})).await;
-                continue;
-            }
+        let Some(client_id) = request_id(&msg) else {
+            write_client_error(&mut writer, None, "missing request id").await;
+            continue;
         };
 
         // Assign a unique internal ID to prevent collisions across clients
         let internal_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-        msg["id"] = json!(internal_id);
+        set_request_id(&mut msg, internal_id);
 
         // Register a oneshot channel for the response
         let (tx, rx) = oneshot::channel();
@@ -155,11 +173,7 @@ async fn handle_client(
 
         // Forward request to browser extension
         if browser_tx.send(msg).await.is_err() {
-            let _ = write_message(
-                &mut writer,
-                &json!({"id": client_id, "error": "browser disconnected"}),
-            )
-            .await;
+            write_client_error(&mut writer, Some(client_id), "browser disconnected").await;
             pending.lock().await.remove(&internal_id);
             break;
         }
@@ -170,25 +184,17 @@ async fn handle_client(
         match response {
             Ok(Ok(mut val)) => {
                 // Restore the client's original ID
-                val["id"] = json!(client_id);
+                set_request_id(&mut val, client_id);
                 if write_message(&mut writer, &val).await.is_err() {
                     break;
                 }
             }
             Ok(Err(_)) => {
-                let _ = write_message(
-                    &mut writer,
-                    &json!({"id": client_id, "error": "response channel dropped"}),
-                )
-                .await;
+                write_client_error(&mut writer, Some(client_id), "response channel dropped").await;
             }
             Err(_) => {
                 pending.lock().await.remove(&internal_id);
-                let _ = write_message(
-                    &mut writer,
-                    &json!({"id": client_id, "error": "request timed out"}),
-                )
-                .await;
+                write_client_error(&mut writer, Some(client_id), "request timed out").await;
             }
         }
     }
@@ -202,11 +208,38 @@ fn detect_browser() -> String {
     detect_browser_from_launch_context(&args, parent_process_name.as_deref()).into()
 }
 
+struct FirefoxLaunchHint {
+    browser: &'static str,
+    arg_substring: &'static str,
+    parent_substring: &'static str,
+}
+
+const FIREFOX_LAUNCH_HINTS: &[FirefoxLaunchHint] = &[
+    FirefoxLaunchHint {
+        browser: "zen",
+        arg_substring: ".zen",
+        parent_substring: "zen",
+    },
+    FirefoxLaunchHint {
+        browser: "firefox",
+        arg_substring: ".mozilla",
+        parent_substring: "firefox",
+    },
+];
+
+const CHROMIUM_PARENT_HINTS: &[(&str, &str)] = &[
+    ("brave", "brave"),
+    ("orion", "orion"),
+    ("edge", "edge"),
+    ("vivaldi", "vivaldi"),
+    ("chromium", "chromium"),
+];
+
 fn detect_browser_from_launch_context(
     args: &[String],
     parent_process_name: Option<&str>,
 ) -> &'static str {
-    let parent_process_name = parent_process_name.map(|name| name.to_lowercase());
+    let parent_process_name = parent_process_name.map(str::to_lowercase);
     let parent_contains = |needle: &str| {
         parent_process_name
             .as_deref()
@@ -215,29 +248,20 @@ fn detect_browser_from_launch_context(
 
     // Firefox-based: macOS Firefox can omit a `.mozilla` path when spawning
     // the native host, so fall back to the parent process name there.
-    if args.iter().any(|a| a.contains(".zen")) || parent_contains("zen") {
-        return "zen";
-    }
-    if args.iter().any(|a| a.contains(".mozilla")) || parent_contains("firefox") {
-        return "firefox";
+    for hint in FIREFOX_LAUNCH_HINTS {
+        if args.iter().any(|arg| arg.contains(hint.arg_substring))
+            || parent_contains(hint.parent_substring)
+        {
+            return hint.browser;
+        }
     }
 
     // Chromium-based: arg contains chrome-extension://
-    if args.iter().any(|a| a.contains("chrome-extension://")) {
-        if parent_contains("brave") {
-            return "brave";
-        }
-        if parent_contains("orion") {
-            return "orion";
-        }
-        if parent_contains("edge") {
-            return "edge";
-        }
-        if parent_contains("vivaldi") {
-            return "vivaldi";
-        }
-        if parent_contains("chromium") {
-            return "chromium";
+    if args.iter().any(|arg| arg.contains("chrome-extension://")) {
+        for &(parent_substring, browser) in CHROMIUM_PARENT_HINTS {
+            if parent_contains(parent_substring) {
+                return browser;
+            }
         }
         return "chrome";
     }

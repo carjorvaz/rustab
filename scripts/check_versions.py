@@ -2,8 +2,8 @@
 
 import argparse
 import json
-import re
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -53,20 +53,13 @@ def read_json(path: Path) -> dict:
 
 
 def read_workspace_version(path: Path) -> str:
-    in_workspace_package = False
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            in_workspace_package = line == "[workspace.package]"
-            continue
-        if not in_workspace_package:
-            continue
-        match = re.fullmatch(r'version\s*=\s*"([^"]+)"', line)
-        if match:
-            return match.group(1)
-    raise ValueError(f"could not find [workspace.package].version in {path}")
+    cargo_toml = tomllib.loads(path.read_text())
+    try:
+        return cargo_toml["workspace"]["package"]["version"]
+    except KeyError as error:
+        raise ValueError(
+            f"could not find [workspace.package].version in {path}"
+        ) from error
 
 
 def read_signed_firefox_manifest(path: Path) -> dict:

@@ -54,7 +54,9 @@ pub async fn write_message<W: AsyncWrite + Unpin>(
         ));
     }
 
-    let len = (payload.len() as u32).to_le_bytes();
+    let len = u32::try_from(payload.len())
+        .expect("payload length is capped below u32::MAX")
+        .to_le_bytes();
     writer.write_all(&len).await?;
     writer.write_all(&payload).await?;
     writer.flush().await?;
@@ -171,7 +173,7 @@ pub struct WindowInfo {
 pub fn socket_dir() -> PathBuf {
     #[cfg(unix)]
     {
-        let uid = unsafe { geteuid() };
+        let uid = effective_uid();
         PathBuf::from(format!("/tmp/rustab-{uid}"))
     }
 
@@ -254,7 +256,7 @@ fn trusted_socket_dir_metadata(dir: &Path) -> io::Result<std::fs::Metadata> {
         ));
     }
 
-    let uid = unsafe { geteuid() };
+    let uid = effective_uid();
     if metadata.uid() != uid {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -352,15 +354,19 @@ pub fn parse_tab_id(s: &str) -> Option<TabRef<'_>> {
 /// Accepts either the current `prefix.pid.w.window_id` format or the legacy
 /// `prefix.w.window_id` shorthand for single-mediator setups.
 pub fn parse_window_id(s: &str) -> Option<WindowRef<'_>> {
-    let parts = s.split('.').collect::<Vec<_>>();
+    let mut parts = s.split('.');
+    let prefix = parts.next()?;
+    if prefix.is_empty() {
+        return None;
+    }
 
-    match parts.as_slice() {
-        [prefix, pid_str, "w", window_id_str] if !prefix.is_empty() => Some(WindowRef {
+    match (parts.next()?, parts.next()?, parts.next(), parts.next()) {
+        (pid_str, "w", Some(window_id_str), None) => Some(WindowRef {
             prefix,
             mediator_pid: Some(pid_str.parse().ok()?),
             window_id: window_id_str.parse().ok()?,
         }),
-        [prefix, "w", window_id_str] if !prefix.is_empty() => Some(WindowRef {
+        ("w", window_id_str, None, None) => Some(WindowRef {
             prefix,
             mediator_pid: None,
             window_id: window_id_str.parse().ok()?,
@@ -375,14 +381,24 @@ unsafe extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
 }
 
+#[cfg(unix)]
+fn effective_uid() -> u32 {
+    unsafe { geteuid() }
+}
+
+#[cfg(unix)]
+fn send_signal(pid: i32, signal: i32) -> i32 {
+    unsafe { kill(pid, signal) }
+}
+
 /// Check if a PID is alive.
 /// `kill(pid, 0)` works on Unix even when `/proc` is absent (for example macOS).
 pub fn is_pid_alive(pid: u32) -> bool {
-    if pid > i32::MAX as u32 {
+    let Ok(pid) = i32::try_from(pid) else {
         return false;
-    }
+    };
 
-    match unsafe { kill(pid as i32, 0) } {
+    match send_signal(pid, 0) {
         0 => true,
         _ => matches!(std::io::Error::last_os_error().raw_os_error(), Some(1)),
     }
@@ -521,7 +537,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn socket_dir_uses_effective_uid() {
-        let uid = unsafe { geteuid() };
+        let uid = effective_uid();
         assert_eq!(socket_dir(), PathBuf::from(format!("/tmp/rustab-{uid}")));
     }
 

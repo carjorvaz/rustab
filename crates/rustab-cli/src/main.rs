@@ -11,7 +11,7 @@ mod synced_command;
 use crate::cli::{Cli, Command, OutputFormat, SyncedCommand};
 use crate::client::{
     discover_sockets, resolve_socket, resolve_socket_for_tab_ref, resolve_socket_for_window_ref,
-    same_socket, send_rpc, socket_for_raw_window_id, BrowserSocket,
+    send_rpc, socket_for_raw_window_id, BrowserSocket,
 };
 use crate::doctor::cmd_doctor;
 use crate::input::{
@@ -24,10 +24,10 @@ use crate::output::print_json;
 use crate::synced_command::cmd_synced_list;
 use clap::Parser;
 use rustab_protocol::{
-    browser_prefix, format_tab_id, parse_tab_id, RpcRequest, TabInfo, WindowInfo,
-    ACTIVATE_TAB_METHOD, CLOSE_TABS_METHOD, LIST_TABS_METHOD, LIST_WINDOWS_METHOD,
-    MOVE_TABS_METHOD, OPEN_TAB_METHOD,
+    browser_prefix, format_tab_id, parse_tab_id, RpcRequest, TabInfo, ACTIVATE_TAB_METHOD,
+    CLOSE_TABS_METHOD, LIST_TABS_METHOD, LIST_WINDOWS_METHOD, MOVE_TABS_METHOD, OPEN_TAB_METHOD,
 };
+use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 #[tokio::main]
@@ -88,6 +88,31 @@ async fn tab_window_id(sock: &BrowserSocket, tab_id: u64) -> Result<u64, String>
         .ok_or_else(|| format!("target tab {tab_id} was not found"))
 }
 
+async fn collect_listing_rows<T, Row>(
+    sockets: &[BrowserSocket],
+    method: &str,
+    into_row: impl Fn(&BrowserSocket, T) -> Row,
+) -> Option<Vec<Row>>
+where
+    T: DeserializeOwned,
+{
+    let mut rows = Vec::new();
+    let mut successful_responses = 0;
+
+    for sock in sockets {
+        let request = RpcRequest::new(method, json!({}));
+        match send_rpc::<Vec<T>>(sock, &request).await {
+            Ok(items) => {
+                successful_responses += 1;
+                rows.extend(items.into_iter().map(|item| into_row(sock, item)));
+            }
+            Err(error) => eprintln!("{} (pid {}): {error}", sock.browser, sock.pid),
+        }
+    }
+
+    (successful_responses > 0).then_some(rows)
+}
+
 async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
     let sockets = discover_sockets(browser_filter);
 
@@ -96,63 +121,21 @@ async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
         return 1;
     }
 
-    let mut all_tabs = Vec::new();
-    let mut successful_responses = 0;
-
-    for sock in &sockets {
-        let request = RpcRequest::new(LIST_TABS_METHOD, json!({}));
-        match send_rpc::<Vec<TabInfo>>(sock, &request).await {
-            Ok(tabs) => {
-                successful_responses += 1;
-                all_tabs.extend(tabs.into_iter().map(|tab| TabListing::new(sock, tab)));
-            }
-            Err(error) => eprintln!("{} (pid {}): {error}", sock.browser, sock.pid),
-        }
-    }
-
-    if successful_responses == 0 {
+    let Some(mut all_tabs) =
+        collect_listing_rows(&sockets, LIST_TABS_METHOD, TabListing::new).await
+    else {
         return 1;
-    }
-
-    all_tabs.sort_by(|left, right| {
-        left.socket
-            .browser
-            .cmp(&right.socket.browser)
-            .then(left.socket.pid.cmp(&right.socket.pid))
-            .then(left.window_id.cmp(&right.window_id))
-            .then(left.index.cmp(&right.index))
-            .then(left.tab_id.cmp(&right.tab_id))
-    });
+    };
+    listing::sort_tab_listings(&mut all_tabs);
 
     match format {
         OutputFormat::Json => {
-            let out: Vec<Value> = all_tabs
-                .iter()
-                .map(|tab| {
-                    json!({
-                        "id": tab.display_id(),
-                        "browser": tab.socket.browser.as_str(),
-                        "mediator_pid": tab.socket.pid,
-                        "window": tab.display_window_id(),
-                        "window_id": tab.window_id,
-                        "index": tab.index,
-                        "title": tab.title.as_str(),
-                        "url": tab.url.as_str(),
-                        "active": tab.active,
-                        "pinned": tab.pinned,
-                    })
-                })
-                .collect();
-            if let Err(error) = print_json(&out) {
+            if let Err(error) = print_json(&listing::tab_listings_json(&all_tabs)) {
                 eprintln!("{error}");
                 return 1;
             }
         }
-        OutputFormat::Tsv => {
-            for tab in &all_tabs {
-                println!("{}\t{}\t{}", tab.display_id(), tab.title, tab.url);
-            }
-        }
+        OutputFormat::Tsv => listing::print_tab_listings_tsv(&all_tabs),
     }
 
     0
@@ -166,75 +149,21 @@ async fn cmd_windows(format: &OutputFormat, browser_filter: Option<&str>) -> i32
         return 1;
     }
 
-    let mut all_windows = Vec::new();
-    let mut successful_responses = 0;
-
-    for sock in &sockets {
-        let request = RpcRequest::new(LIST_WINDOWS_METHOD, json!({}));
-        match send_rpc::<Vec<WindowInfo>>(sock, &request).await {
-            Ok(windows) => {
-                successful_responses += 1;
-                all_windows.extend(
-                    windows
-                        .into_iter()
-                        .map(|window| WindowListing::new(sock, window)),
-                );
-            }
-            Err(error) => eprintln!("{} (pid {}): {error}", sock.browser, sock.pid),
-        }
-    }
-
-    if successful_responses == 0 {
+    let Some(mut all_windows) =
+        collect_listing_rows(&sockets, LIST_WINDOWS_METHOD, WindowListing::new).await
+    else {
         return 1;
-    }
-
-    all_windows.sort_by(|left, right| {
-        left.socket
-            .browser
-            .cmp(&right.socket.browser)
-            .then(left.socket.pid.cmp(&right.socket.pid))
-            .then(left.window_id.cmp(&right.window_id))
-    });
+    };
+    listing::sort_window_listings(&mut all_windows);
 
     match format {
         OutputFormat::Json => {
-            let out: Vec<Value> = all_windows
-                .iter()
-                .map(|window| {
-                    json!({
-                        "id": window.display_id(),
-                        "browser": window.socket.browser.as_str(),
-                        "mediator_pid": window.socket.pid,
-                        "window_id": window.window_id,
-                        "focused": window.focused,
-                        "type": window.window_type.as_str(),
-                        "state": window.state.as_str(),
-                        "incognito": window.incognito,
-                        "tab_count": window.tab_count,
-                        "active_tab_id": window.active_tab_display_id(),
-                        "active_tab_raw_id": window.active_tab_id,
-                        "active_tab_title": window.active_tab_title.as_str(),
-                        "active_tab_url": window.active_tab_url.as_str(),
-                    })
-                })
-                .collect();
-            if let Err(error) = print_json(&out) {
+            if let Err(error) = print_json(&listing::window_listings_json(&all_windows)) {
                 eprintln!("{error}");
                 return 1;
             }
         }
-        OutputFormat::Tsv => {
-            for window in &all_windows {
-                println!(
-                    "{}\t{}\t{}\t{}\t{}",
-                    window.display_id(),
-                    window.tab_count,
-                    window.focused,
-                    window.active_tab_title,
-                    window.active_tab_url
-                );
-            }
-        }
+        OutputFormat::Tsv => listing::print_window_listings_tsv(&all_windows),
     }
 
     0
@@ -289,6 +218,19 @@ async fn cmd_close(tab_ids: Vec<String>) -> i32 {
     i32::from(failed)
 }
 
+const CROSS_INSTANCE_MOVE_ERROR: &str = "Cannot move tabs across browser instances.";
+
+fn require_same_browser_instance(
+    source: &BrowserSocket,
+    target: &BrowserSocket,
+) -> Result<(), &'static str> {
+    if source == target {
+        Ok(())
+    } else {
+        Err(CROSS_INSTANCE_MOVE_ERROR)
+    }
+}
+
 async fn cmd_move(
     tab_ids: Vec<String>,
     to_window: Option<&str>,
@@ -329,8 +271,8 @@ async fn cmd_move(
         };
 
         if let Some(existing_socket) = source_socket {
-            if !same_socket(existing_socket, sock) {
-                eprintln!("Cannot move tabs across browser instances.");
+            if let Err(error) = require_same_browser_instance(existing_socket, sock) {
+                eprintln!("{error}");
                 return 1;
             }
         } else {
@@ -357,8 +299,8 @@ async fn cmd_move(
                     }
                 };
 
-                if !same_socket(source_socket, target_socket) {
-                    eprintln!("Cannot move tabs across browser instances.");
+                if let Err(error) = require_same_browser_instance(source_socket, target_socket) {
+                    eprintln!("{error}");
                     return 1;
                 }
 
@@ -385,8 +327,8 @@ async fn cmd_move(
                 }
             };
 
-            if !same_socket(source_socket, target_socket) {
-                eprintln!("Cannot move tabs across browser instances.");
+            if let Err(error) = require_same_browser_instance(source_socket, target_socket) {
+                eprintln!("{error}");
                 return 1;
             }
 

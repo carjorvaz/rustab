@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use tokio::net::UnixStream;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct BrowserSocket {
     pub browser: String,
     pub pid: u32,
@@ -52,12 +52,7 @@ pub fn discover_sockets(browser_filter: Option<&str>) -> Vec<BrowserSocket> {
         })
         .collect::<Vec<_>>();
 
-    sockets.sort_by(|left, right| {
-        left.browser
-            .cmp(&right.browser)
-            .then(left.pid.cmp(&right.pid))
-            .then(left.path.cmp(&right.path))
-    });
+    sockets.sort();
     sockets
 }
 
@@ -141,10 +136,6 @@ pub fn resolve_socket_for_window_ref<'a>(
     window_ref: WindowRef<'_>,
 ) -> Result<&'a BrowserSocket, String> {
     resolve_socket(sockets, window_ref.prefix, window_ref.mediator_pid)
-}
-
-pub fn same_socket(left: &BrowserSocket, right: &BrowserSocket) -> bool {
-    left.browser == right.browser && left.pid == right.pid && left.path == right.path
 }
 
 pub fn socket_for_raw_window_id<'a>(
