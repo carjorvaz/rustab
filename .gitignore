@@ -1,5 +1,8 @@
 /target
 /.direnv
+/.jj
+/.ruff_cache
+/.hermes/
 dist/
 result
 site/

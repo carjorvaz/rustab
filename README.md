@@ -233,7 +233,29 @@ rustab doctor                              # diagnose manifests, mediators, and 
 
 ## Development
 
-The flake includes a dev shell with Rust toolchain and `web-ext` for Firefox extension signing:
+Durable repo guidance lives under `docs/`; start with `docs/README.md` and `AGENTS.md` if you are an agent.
+
+Enter the Nix dev shell for the canonical toolchain:
+
+```sh
+nix develop
+just --list
+just validate-fast
+```
+
+The normal source gate is:
+
+```sh
+./scripts/validate fast
+```
+
+Before release-sensitive changes, run:
+
+```sh
+./scripts/validate full
+```
+
+The flake also exposes release helpers:
 
 ```sh
 nix run .#check-version-sync
