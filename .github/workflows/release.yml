@@ -64,22 +64,8 @@ jobs:
             echo "release_asset_url=${release_asset_url}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Check formatting
-        run: nix develop -c cargo fmt --all -- --check
-
-      - name: Check extension JavaScript
-        run: |
-          node --check extensions/shared/background_core.js
-          node --check extensions/chrome/background.js
-          node --check extensions/chrome/background_core.js
-          node --check extensions/firefox/background.js
-          node --check extensions/firefox/background_core.js
-
-      - name: Run clippy
-        run: nix develop -c cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Run tests
-        run: nix develop -c cargo test
+      - name: Run source validation
+        run: nix develop -c ./scripts/validate fast
 
       - name: Write Chromium extension signing key
         env:

@@ -56,8 +56,7 @@ def parse_args() -> argparse.Namespace:
         "--base-url",
         required=True,
         help=(
-            "Public base URL that will host updates.xml and "
-            "extension-settings.json."
+            "Public base URL that will host updates.xml and extension-settings.json."
         ),
     )
     parser.add_argument(
@@ -109,7 +108,9 @@ def find_browser_binary(explicit: Optional[Path]) -> Path:
             return explicit
         raise FileNotFoundError(f"browser binary not found: {explicit}")
 
-    candidates = MAC_BROWSER_CANDIDATES if sys.platform == "darwin" else LINUX_BROWSER_CANDIDATES
+    candidates = (
+        MAC_BROWSER_CANDIDATES if sys.platform == "darwin" else LINUX_BROWSER_CANDIDATES
+    )
     for candidate in candidates:
         path = Path(candidate)
         if path.is_absolute():
@@ -209,12 +210,16 @@ def main() -> int:
     update_url = f"{base_url}/updates.xml"
     codebase_url = args.codebase_url or f"{base_url}/{crx_filename}"
 
-    with tempfile.TemporaryDirectory(prefix="rustab-chromium-release-") as temp_dir_name:
+    with tempfile.TemporaryDirectory(
+        prefix="rustab-chromium-release-"
+    ) as temp_dir_name:
         temp_dir = Path(temp_dir_name)
         staged_extension_dir = temp_dir / "rustab"
         staged_extension_dir.mkdir()
         for relative_name in EXTENSION_FILES:
-            shutil.copy2(EXTENSION_DIR / relative_name, staged_extension_dir / relative_name)
+            shutil.copy2(
+                EXTENSION_DIR / relative_name, staged_extension_dir / relative_name
+            )
 
         staged_manifest_path = staged_extension_dir / "manifest.json"
         staged_manifest_path.chmod(0o644)

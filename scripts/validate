@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: scripts/validate [fast|full|release]
+
+Modes:
+  fast     format check, version sync, extension JS syntax, clippy, nextest
+  full     fast plus nix flake check
+  release  full plus source-version printout for tag sanity
+EOF
+}
+
+mode="${1:-fast}"
+if [[ $# -gt 1 ]]; then
+  usage
+  exit 2
+fi
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+section() {
+  printf '\n==> %s\n' "$*"
+}
+
+require_command() {
+  local command_name="$1"
+  local hint="${2:-enter the Nix dev shell: nix develop}"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    printf 'missing required command: %s\nHint: %s\n' "$command_name" "$hint" >&2
+    exit 127
+  fi
+}
+
+check_format() {
+  section "Checking formatting with treefmt"
+  require_command treefmt
+  treefmt --fail-on-change
+}
+
+check_versions() {
+  section "Checking version metadata"
+  require_command python3
+  python3 scripts/check_versions.py
+}
+
+check_extension_js() {
+  section "Checking extension JavaScript syntax"
+  require_command node
+  local js_files=(
+    extensions/shared/background_core.js
+    extensions/chrome/background.js
+    extensions/chrome/background_core.js
+    extensions/firefox/background.js
+    extensions/firefox/background_core.js
+  )
+  local file
+  for file in "${js_files[@]}"; do
+    node --check "$file"
+  done
+}
+
+check_clippy() {
+  section "Running clippy"
+  require_command cargo
+  cargo clippy --workspace --all-targets -- -D warnings
+}
+
+check_tests() {
+  section "Running tests with cargo-nextest"
+  require_command cargo-nextest "enter the Nix dev shell or install cargo-nextest"
+  cargo nextest run --workspace
+}
+
+check_flake() {
+  section "Running nix flake check"
+  require_command nix
+  nix flake check --print-build-logs
+}
+
+print_release_version() {
+  section "Printing source version for tag sanity"
+  require_command python3
+  local version
+  version="$(python3 scripts/check_versions.py --source-only --print-version)"
+  printf 'source version: %s\n' "$version"
+  printf 'expected release tag: v%s\n' "$version"
+}
+
+run_fast() {
+  check_format
+  check_versions
+  check_extension_js
+  check_clippy
+  check_tests
+}
+
+case "$mode" in
+  fast)
+    run_fast
+    ;;
+  full)
+    run_fast
+    check_flake
+    ;;
+  release)
+    run_fast
+    check_flake
+    print_release_version
+    ;;
+  -h | --help | help)
+    usage
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

@@ -35,25 +35,8 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
 
-      - name: Check formatting
-        run: nix develop -c cargo fmt --all -- --check
-
-      - name: Check extension metadata
-        run: nix develop -c python3 scripts/check_versions.py
-
-      - name: Check extension JavaScript
-        run: |
-          node --check extensions/shared/background_core.js
-          node --check extensions/chrome/background.js
-          node --check extensions/chrome/background_core.js
-          node --check extensions/firefox/background.js
-          node --check extensions/firefox/background_core.js
-
-      - name: Run clippy
-        run: nix develop -c cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Run tests
-        run: nix develop -c cargo test
+      - name: Run source validation
+        run: nix develop -c ./scripts/validate fast
 
       - name: Run flake checks
         run: nix flake check --print-build-logs

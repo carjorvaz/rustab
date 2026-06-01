@@ -1,0 +1,26 @@
+[global]
+excludes = [
+  ".git/**",
+  ".jj/**",
+  "target/**",
+  "extensions/firefox-signed/**",
+]
+
+[formatter.rust]
+command = "rustfmt"
+options = ["--edition", "2021"]
+includes = ["*.rs"]
+
+[formatter.nix]
+command = "nixfmt"
+includes = ["*.nix"]
+
+[formatter.python]
+command = "ruff"
+options = ["format"]
+includes = ["*.py"]
+
+[formatter.shell]
+command = "shfmt"
+options = ["-w", "-i", "2", "-ci"]
+includes = ["*.sh", "scripts/validate"]

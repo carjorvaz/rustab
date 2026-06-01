@@ -22,9 +22,17 @@ def parse_args() -> argparse.Namespace:
             "addon/version using AMO API credentials."
         )
     )
-    parser.add_argument("--addon-id", required=True, help="Firefox addon id, for example rustab@rustab.dev")
-    parser.add_argument("--version", required=True, help="Version to download, for example 0.1.1")
-    parser.add_argument("--out", required=True, type=Path, help="Where to write the downloaded XPI")
+    parser.add_argument(
+        "--addon-id",
+        required=True,
+        help="Firefox addon id, for example rustab@rustab.dev",
+    )
+    parser.add_argument(
+        "--version", required=True, help="Version to download, for example 0.1.1"
+    )
+    parser.add_argument(
+        "--out", required=True, type=Path, help="Where to write the downloaded XPI"
+    )
     return parser.parse_args()
 
 

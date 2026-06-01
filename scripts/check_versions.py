@@ -11,7 +11,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CARGO_TOML = REPO_ROOT / "Cargo.toml"
 CHROME_MANIFEST = REPO_ROOT / "extensions" / "chrome" / "manifest.json"
 FIREFOX_MANIFEST = REPO_ROOT / "extensions" / "firefox" / "manifest.json"
-SIGNED_FIREFOX_XPI = REPO_ROOT / "extensions" / "firefox-signed" / "rustab@rustab.dev.xpi"
+SIGNED_FIREFOX_XPI = (
+    REPO_ROOT / "extensions" / "firefox-signed" / "rustab@rustab.dev.xpi"
+)
 FIREFOX_EXTENSION_FILES = [
     "manifest.json",
     "background.js",

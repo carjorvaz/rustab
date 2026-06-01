@@ -27,7 +27,7 @@ while [ "$#" -gt 0 ]; do
       credentials_path="$2"
       shift 2
       ;;
-    -h|--help)
+    -h | --help)
       usage
       exit 0
       ;;
@@ -59,7 +59,8 @@ export WEB_EXT_API_KEY WEB_EXT_API_SECRET
 cd "$repo_root"
 rm -rf web-ext-artifacts
 
-firefox_addon_id="$(python3 - <<'PY'
+firefox_addon_id="$(
+  python3 - <<'PY'
 import json
 from pathlib import Path
 manifest = json.loads(Path("extensions/firefox/manifest.json").read_text())
@@ -67,7 +68,8 @@ print(manifest["browser_specific_settings"]["gecko"]["id"])
 PY
 )"
 
-firefox_version="$(python3 - <<'PY'
+firefox_version="$(
+  python3 - <<'PY'
 import json
 from pathlib import Path
 manifest = json.loads(Path("extensions/firefox/manifest.json").read_text())
