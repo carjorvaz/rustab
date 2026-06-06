@@ -20,6 +20,27 @@ const MAX_OUTBOUND_MESSAGE_BYTES: usize = 1024 * 1024;
 /// This is the same framing used by Chrome/Firefox native messaging over stdio
 /// and by our Unix socket protocol.
 pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut R) -> io::Result<serde_json::Value> {
+    read_message_with_recovery(reader, false).await
+}
+
+/// Read a native-messaging-framed JSON message, tolerating short length
+/// prefixes from buggy native-messaging hosts.
+///
+/// Orion 1.0.x appears to frame extension-to-native messages using the JS
+/// string length rather than the UTF-8 byte length. When tab titles or URLs
+/// contain non-ASCII characters, the declared length ends in the middle of a
+/// JSON string. In that one narrow case, keep reading bytes until the JSON
+/// payload becomes complete.
+pub async fn read_message_lenient<R: AsyncRead + Unpin>(
+    reader: &mut R,
+) -> io::Result<serde_json::Value> {
+    read_message_with_recovery(reader, true).await
+}
+
+async fn read_message_with_recovery<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    recover_short_length_prefix: bool,
+) -> io::Result<serde_json::Value> {
     let mut len_buf = [0u8; 4];
     reader.read_exact(&mut len_buf).await?;
     let len = u32::from_le_bytes(len_buf) as usize;
@@ -37,7 +58,21 @@ pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut R) -> io::Result<se
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).await?;
 
-    serde_json::from_slice(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    loop {
+        match serde_json::from_slice(&buf) {
+            Ok(value) => return Ok(value),
+            Err(error)
+                if recover_short_length_prefix
+                    && error.is_eof()
+                    && buf.len() < MAX_INBOUND_MESSAGE_BYTES =>
+            {
+                let mut extra = [0u8; 1];
+                reader.read_exact(&mut extra).await?;
+                buf.push(extra[0]);
+            }
+            Err(error) => return Err(io::Error::new(io::ErrorKind::InvalidData, error)),
+        }
+    }
 }
 
 /// Write a native-messaging-framed JSON message.
@@ -528,6 +563,49 @@ pub const FIREFOX_EXTENSION_ID: &str = "rustab@rustab.dev";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn lenient_read_recovers_short_utf8_length_prefix() {
+        let message = serde_json::json!({
+            "id": 7,
+            "result": {"title": "café tab", "url": "https://example.com/ação"}
+        });
+        let payload = serde_json::to_vec(&message).expect("json payload");
+        let short_len = String::from_utf8(payload.clone())
+            .expect("utf8 json")
+            .chars()
+            .count();
+        assert!(short_len < payload.len());
+
+        let mut framed = Vec::new();
+        framed.extend_from_slice(&(short_len as u32).to_le_bytes());
+        framed.extend_from_slice(&payload);
+
+        let mut reader = std::io::Cursor::new(framed);
+        let parsed = read_message_lenient(&mut reader).await.expect("parsed");
+        assert_eq!(parsed, message);
+    }
+
+    #[tokio::test]
+    async fn strict_read_rejects_short_utf8_length_prefix() {
+        let message = serde_json::json!({"id": 7, "result": {"title": "café tab"}});
+        let payload = serde_json::to_vec(&message).expect("json payload");
+        let short_len = String::from_utf8(payload.clone())
+            .expect("utf8 json")
+            .chars()
+            .count();
+        assert!(short_len < payload.len());
+
+        let mut framed = Vec::new();
+        framed.extend_from_slice(&(short_len as u32).to_le_bytes());
+        framed.extend_from_slice(&payload);
+
+        let mut reader = std::io::Cursor::new(framed);
+        let error = read_message(&mut reader)
+            .await
+            .expect_err("strict parser rejects frame");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
 
     #[test]
     fn current_process_is_alive() {

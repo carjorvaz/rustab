@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CARGO_TOML = REPO_ROOT / "Cargo.toml"
 CHROME_MANIFEST = REPO_ROOT / "extensions" / "chrome" / "manifest.json"
 FIREFOX_MANIFEST = REPO_ROOT / "extensions" / "firefox" / "manifest.json"
+ORION_MANIFEST = REPO_ROOT / "extensions" / "orion" / "manifest.json"
 SIGNED_FIREFOX_XPI = (
     REPO_ROOT / "extensions" / "firefox-signed" / "rustab@rustab.dev.xpi"
 )
@@ -87,6 +88,7 @@ def main() -> int:
     cargo_version = read_workspace_version(CARGO_TOML)
     chrome_manifest = read_json(CHROME_MANIFEST)
     firefox_manifest = read_json(FIREFOX_MANIFEST)
+    orion_manifest = read_json(ORION_MANIFEST)
     signed_firefox_manifest = (
         None if args.source_only else read_signed_firefox_manifest(SIGNED_FIREFOX_XPI)
     )
@@ -95,6 +97,7 @@ def main() -> int:
         "Cargo workspace": cargo_version,
         "Chromium manifest": chrome_manifest["version"],
         "Firefox manifest": firefox_manifest["version"],
+        "Orion manifest": orion_manifest["version"],
     }
     if signed_firefox_manifest is not None:
         observed_versions["Signed Firefox XPI"] = signed_firefox_manifest["version"]
@@ -141,7 +144,7 @@ def main() -> int:
                 )
 
     shared_core = SHARED_EXTENSION_CORE.read_bytes()
-    for browser in ["chrome", "firefox"]:
+    for browser in ["chrome", "firefox", "orion"]:
         core_path = REPO_ROOT / "extensions" / browser / "background_core.js"
         if core_path.read_bytes() != shared_core:
             mismatches.append(
@@ -160,6 +163,7 @@ def main() -> int:
     print(f"rustab version: {cargo_version}")
     print(f"chromium extension: {chrome_manifest['version']}")
     print(f"firefox extension: {firefox_manifest['version']} ({firefox_manifest_id})")
+    print(f"orion extension: {orion_manifest['version']}")
     if signed_firefox_manifest is not None:
         print(
             "signed firefox xpi: "

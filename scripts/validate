@@ -55,6 +55,8 @@ check_extension_js() {
     extensions/chrome/background_core.js
     extensions/firefox/background.js
     extensions/firefox/background_core.js
+    extensions/orion/background.js
+    extensions/orion/background_core.js
   )
   local file
   for file in "${js_files[@]}"; do

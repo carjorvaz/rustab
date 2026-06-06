@@ -1,6 +1,6 @@
 use rustab_protocol::{
-    is_pid_alive, prepare_socket_dir, read_message, socket_path, write_message,
-    REQUEST_TIMEOUT_SECS,
+    is_pid_alive, prepare_socket_dir, read_message, read_message_lenient, socket_path,
+    write_message, REQUEST_TIMEOUT_SECS,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -79,7 +79,7 @@ async fn main() {
     let stdin_handle = tokio::spawn(async move {
         let mut stdin = tokio::io::stdin();
         loop {
-            match read_message(&mut stdin).await {
+            match read_message_lenient(&mut stdin).await {
                 Ok(msg) => {
                     if let Some(id) = request_id(&msg) {
                         let mut map = pending_for_stdin.lock().await;

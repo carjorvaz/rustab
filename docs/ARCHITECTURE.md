@@ -46,7 +46,8 @@ Preserve scoped IDs in user-facing examples and tests unless a test is explicitl
 - `crates/rustab-mediator/` — native-messaging bridge between browser stdio and local Unix sockets.
 - `crates/rustab-protocol/` — shared request/response types for CLI, mediator, and browser extension messages.
 - `extensions/shared/` — browser-independent extension behavior.
-- `extensions/chrome/` — Chromium-family manifest/background entrypoint and assets.
+- `extensions/chrome/` — Chromium-family Manifest V3 manifest/background entrypoint and assets.
+- `extensions/orion/` — Orion Manifest V2 persistent-background entrypoint and assets.
 - `extensions/firefox/` — Firefox-family manifest/background entrypoint and assets.
 - `extensions/firefox-signed/` — checked-in AMO-signed XPI consumed by the Nix package and release workflow.
 - `scripts/` — validation and release-support scripts.

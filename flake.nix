@@ -9,6 +9,7 @@
       cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
       chromeManifest = builtins.fromJSON (builtins.readFile ./extensions/chrome/manifest.json);
       firefoxManifest = builtins.fromJSON (builtins.readFile ./extensions/firefox/manifest.json);
+      orionManifest = builtins.fromJSON (builtins.readFile ./extensions/orion/manifest.json);
       packageChromiumReleaseFor =
         pkgs:
         pkgs.writeShellApplication {
@@ -106,6 +107,8 @@
         "extensions/chrome/background_core.js"
         "extensions/firefox/background.js"
         "extensions/firefox/background_core.js"
+        "extensions/orion/background.js"
+        "extensions/orion/background_core.js"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
     in
@@ -178,6 +181,22 @@
             };
           };
 
+          orion-extension = pkgs.stdenvNoCC.mkDerivation {
+            pname = "rustab-orion-extension";
+            inherit version;
+            src = self;
+            installPhase = ''
+              install -Dm444 extensions/orion/manifest.json $out/manifest.json
+              install -Dm444 extensions/orion/background.js $out/background.js
+              install -Dm444 extensions/orion/background_core.js $out/background_core.js
+              install -Dm444 extensions/orion/icon48.png $out/icon48.png
+              install -Dm444 extensions/orion/icon128.png $out/icon128.png
+            '';
+            passthru = {
+              extensionId = chromeExtensionId;
+            };
+          };
+
           # AMO-signed XPI matching the rycee/nur firefox-addons layout
           # so it works with programs.firefox.profiles.<name>.extensions.packages
           # Re-sign after changes: source .web-ext-credentials && web-ext sign \
@@ -240,6 +259,7 @@
                 version
                 ;
               chromeExtension = chrome-extension;
+              orionExtension = orion-extension;
               firefoxExtension = firefox-extension;
             };
 
@@ -269,6 +289,7 @@
           refresh-firefox-xpi = self.packages.${system}.refresh-firefox-xpi;
           package-chromium-release = self.packages.${system}.package-chromium-release;
           chrome-extension = self.packages.${system}.chrome-extension;
+          orion-extension = self.packages.${system}.orion-extension;
           firefox-extension = self.packages.${system}.firefox-extension;
           extension-js-syntax =
             pkgs.runCommand "rustab-extension-js-syntax"

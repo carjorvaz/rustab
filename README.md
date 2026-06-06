@@ -51,9 +51,10 @@ Add rustab as a flake input:
 }
 ```
 
-The flake provides six packages:
+The flake provides seven packages:
 - `rustab` -- CLI + mediator binaries with native messaging manifests
 - `chrome-extension` -- unpacked Chromium extension directory
+- `orion-extension` -- unpacked Orion extension directory using Orion's persistent background-page path
 - `firefox-extension` -- AMO-signed XPI for Firefox
 - `check-version-sync` -- helper for verifying release metadata stays aligned
 - `refresh-firefox-xpi` -- helper for re-signing and refreshing the checked-in Firefox XPI
@@ -61,6 +62,7 @@ The flake provides six packages:
 
 The `rustab` package also exposes passthru metadata:
 - `chromeExtension`
+- `orionExtension`
 - `firefoxExtension`
 - `chromeExtensionId`
 - `firefoxExtensionId`
@@ -70,7 +72,7 @@ The flake `lib` output also provides:
 - `firefoxExtensionId`
 - `mkChromiumPolicy`
 
-#### Brave / Chrome / Chromium / Orion
+#### Brave / Chrome / Chromium
 
 On Linux, a browser wrapper can load the unpacked extension via `--load-extension`:
 
@@ -100,7 +102,11 @@ Rustab also installs the native messaging host manifest for Brave into Chromium-
 
 That means `rustab install` may report multiple manifest locations for a single Brave profile on macOS. This is expected.
 
-On macOS, `rustab install` also writes Orion's native messaging host manifest to `~/Library/Application Support/Orion/NativeMessagingHosts`.
+#### Orion
+
+On macOS, load the unpacked Orion extension from `extensions/orion/` (or the flake's `orion-extension` package) with Orion's `Tools > Extensions > Install from Disk` flow. Orion 1.0.x exposes the Chrome WebExtensions APIs Rustab needs, but its current extension runtime is more reliable with a Manifest V2 persistent background page than with Chromium's Manifest V3 service-worker background.
+
+`rustab install` writes Orion's native messaging host manifest to `~/Library/Application Support/Orion/NativeMessagingHosts`.
 
 ### Managed Chromium Distribution
 
@@ -200,7 +206,7 @@ cargo build --release
 
 Then load the browser extension:
 - **Chrome/Brave**: Go to `chrome://extensions` or `brave://extensions`, enable Developer Mode, and "Load unpacked" from `extensions/chrome/`
-- **Orion**: Open `Tools > Extensions > Install from Disk` and choose `extensions/chrome/`
+- **Orion**: Open `Tools > Extensions > Install from Disk` and choose `extensions/orion/`
 - **Firefox**: Open `extensions/firefox-signed/rustab@rustab.dev.xpi` in Firefox to install
 
 `rustab install` uses the built-in Chromium extension ID by default. If you're testing a custom unpacked Chromium extension build with a different ID, pass `--chrome-extension-id <ID>`.

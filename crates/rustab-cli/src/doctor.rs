@@ -131,6 +131,11 @@ fn check_native_manifests(report: &mut Report, browser_filter: Option<&str>) {
                 browser.name
             ));
         }
+
+        #[cfg(target_os = "macos")]
+        if browser.name == "orion" {
+            check_orion_extension_install(report, &home);
+        }
     }
 
     if detected_browser_configs == 0 {
@@ -138,6 +143,60 @@ fn check_native_manifests(report: &mut Report, browser_filter: Option<&str>) {
             Some(browser) => report.warn(format!("no local config directory found for {browser}")),
             None => report.warn("no known local browser config directories found"),
         }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn check_orion_extension_install(report: &mut Report, home: &Path) {
+    let manifest_path = home
+        .join("Library/Application Support/Orion/Defaults/Extensions")
+        .join(CHROME_EXTENSION_ID)
+        .join("manifest.json");
+
+    if !manifest_path.exists() {
+        report.warn(format!(
+            "orion extension is not installed at {}; load the unpacked extension from extensions/orion/",
+            manifest_path.display()
+        ));
+        return;
+    }
+
+    let value = match std::fs::read_to_string(&manifest_path)
+        .map_err(|error| format!("failed to read: {error}"))
+        .and_then(|contents| {
+            serde_json::from_str::<Value>(&contents)
+                .map_err(|error| format!("invalid JSON: {error}"))
+        }) {
+        Ok(value) => value,
+        Err(error) => {
+            report.error(format!("{}: {error}", manifest_path.display()));
+            return;
+        }
+    };
+
+    let manifest_version = value.get("manifest_version").and_then(Value::as_u64);
+    let uses_service_worker = value
+        .get("background")
+        .and_then(|background| background.get("service_worker"))
+        .is_some();
+
+    match (manifest_version, uses_service_worker) {
+        (Some(2), _) => report.ok(format!(
+            "orion extension is the Manifest V2 background-page build: {}",
+            manifest_path.display()
+        )),
+        (Some(3), true) => report.error(format!(
+            "orion extension is the Chromium Manifest V3 service-worker build: {}; install the Orion build from extensions/orion/ or the flake's orion-extension package, then reload Orion",
+            manifest_path.display()
+        )),
+        (Some(version), _) => report.warn(format!(
+            "orion extension has unexpected manifest_version {version}: {}",
+            manifest_path.display()
+        )),
+        (None, _) => report.warn(format!(
+            "orion extension manifest has no numeric manifest_version: {}",
+            manifest_path.display()
+        )),
     }
 }
 
