@@ -1,5 +1,8 @@
-use crate::client::BrowserSocket;
-use rustab_protocol::{browser_prefix, format_tab_id, format_window_id, TabInfo, WindowInfo};
+use crate::client::{send_rpc, BrowserSocket};
+use rustab_protocol::{
+    browser_prefix, format_tab_id, format_window_id, RpcRequest, TabInfo, WindowInfo,
+    WindowInfoLightweight, LIST_TABS_METHOD, LIST_WINDOWS_LIGHTWEIGHT_METHOD, LIST_WINDOWS_METHOD,
+};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
 
@@ -99,6 +102,21 @@ impl WindowListing {
         }
     }
 
+    pub(crate) fn from_lightweight(socket: &BrowserSocket, window: WindowInfoLightweight) -> Self {
+        Self {
+            socket: socket.clone(),
+            window_id: window.id,
+            focused: window.focused,
+            window_type: window.window_type,
+            state: window.state,
+            incognito: window.incognito,
+            tab_count: 0, // not populated in lightweight mode
+            active_tab_id: None,
+            active_tab_title: String::new(),
+            active_tab_url: String::new(),
+        }
+    }
+
     fn display_id(&self) -> String {
         format_window_id(
             browser_prefix(&self.socket.browser),
@@ -148,6 +166,71 @@ pub(crate) fn sort_tab_listings(tabs: &mut [TabListing]) {
 
 pub(crate) fn sort_window_listings(windows: &mut [WindowListing]) {
     windows.sort_by(WindowListing::sort_key_cmp);
+}
+
+/// Fetch tab listings from connected browser mediators.
+///
+/// Returns `None` if every socket failed (errors are printed to stderr).
+pub(crate) async fn fetch_tab_listings(sockets: &[BrowserSocket]) -> Option<Vec<TabListing>> {
+    let mut tabs = Vec::new();
+    let mut successful_responses = 0;
+
+    for sock in sockets {
+        let request = RpcRequest::new(LIST_TABS_METHOD, json!({}));
+        match send_rpc::<Vec<TabInfo>>(sock, &request).await {
+            Ok(items) => {
+                successful_responses += 1;
+                tabs.extend(items.into_iter().map(|tab| TabListing::new(sock, tab)));
+            }
+            Err(error) => eprintln!("{} (pid {}): {error}", sock.browser, sock.pid),
+        }
+    }
+
+    (successful_responses > 0).then_some(tabs)
+}
+
+/// Fetch window listings from connected browser mediators.
+///
+/// Uses lightweight window info for Orion to avoid the slow `populate:true`
+/// path. Returns `None` if every socket failed (errors are printed to stderr).
+pub(crate) async fn fetch_window_listings(sockets: &[BrowserSocket]) -> Option<Vec<WindowListing>> {
+    let mut windows = Vec::new();
+    let mut successful_responses = 0;
+
+    for sock in sockets {
+        let is_orion = sock.browser.eq_ignore_ascii_case("orion");
+        let result = if is_orion {
+            let request = RpcRequest::new(LIST_WINDOWS_LIGHTWEIGHT_METHOD, json!({}));
+            send_rpc::<Vec<WindowInfoLightweight>>(sock, &request)
+                .await
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .map(|w| WindowListing::from_lightweight(sock, w))
+                        .collect::<Vec<_>>()
+                })
+        } else {
+            let request = RpcRequest::new(LIST_WINDOWS_METHOD, json!({}));
+            send_rpc::<Vec<WindowInfo>>(sock, &request)
+                .await
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .map(|w| WindowListing::new(sock, w))
+                        .collect::<Vec<_>>()
+                })
+        };
+
+        match result {
+            Ok(mut rows) => {
+                successful_responses += 1;
+                windows.append(&mut rows);
+            }
+            Err(error) => eprintln!("{} (pid {}): {error}", sock.browser, sock.pid),
+        }
+    }
+
+    (successful_responses > 0).then_some(windows)
 }
 
 pub(crate) fn tab_listings_json(tabs: &[TabListing]) -> Vec<Value> {

@@ -27,12 +27,12 @@ Normal pre-commit/source gate:
 Runs:
 
 1. `treefmt --fail-on-change`
-2. `python3 scripts/check_versions.py`
+2. `python3 scripts/check_versions.py --source-only`
 3. `node --check` for all extension JavaScript entrypoints/shared code
 4. `cargo clippy --workspace --all-targets -- -D warnings`
 5. `cargo nextest run --workspace`
 
-Use this for ordinary Rust, script, docs, manifest, and extension-source edits.
+Use this for ordinary Rust, script, docs, manifest, and extension-source edits. It deliberately does not require the checked-in signed Firefox XPI to be refreshed; that belongs to the release path.
 
 ### `full`
 
@@ -58,7 +58,7 @@ Pre-tag sanity gate:
 ./scripts/validate release
 ```
 
-Runs `full`, then prints the source version from `scripts/check_versions.py --source-only --print-version`. Before pushing a tag, manually verify the intended annotated Git tag matches this version.
+Runs `full`, then validates the checked-in signed Firefox XPI against the Firefox extension source and prints the source version from `scripts/check_versions.py --source-only --print-version`. Before pushing a tag, manually verify the intended annotated Git tag matches this version.
 
 ## Command Menu
 

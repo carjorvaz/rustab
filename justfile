@@ -30,6 +30,9 @@ js-check:
     node --check extensions/firefox/background_core.js
     node --check extensions/orion/background.js
     node --check extensions/orion/background_core.js
+    diff -q extensions/shared/background_core.js extensions/chrome/background_core.js
+    diff -q extensions/shared/background_core.js extensions/firefox/background_core.js
+    diff -q extensions/shared/background_core.js extensions/orion/background_core.js
 
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings

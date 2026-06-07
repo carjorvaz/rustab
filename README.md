@@ -237,6 +237,8 @@ rustab doctor                              # diagnose manifests, mediators, and 
 
 `rustab synced list` is intentionally read-only. Today it supports Orion on macOS by reading Orion's locally cached sync state. By default it reads the live `browser_session_state.plist` view when available, falling back to Orion's current synced-tab plist on older layouts; `--archived` is a debugging escape hatch for the newest non-empty backup snapshot. Orion's live session-state data does not appear to include a friendly device name, so current entries may omit `device_id` even when archived snapshots have one.
 
+For live WebExtension RPCs, the CLI waits slightly longer than the mediator so timeout errors come from the layer that actually waited on the browser. Orion gets a longer default timeout than Chromium/Firefox-family browsers because large restored Orion windows can take substantially longer to answer `tabs.query({})` or populated window requests. `RUSTAB_BROWSER_REQUEST_TIMEOUT_SECS` overrides the mediator/browser wait; if `RUSTAB_CLIENT_REQUEST_TIMEOUT_SECS` is unset, the CLI derives its timeout from the effective browser timeout plus headroom. Explicit client timeout overrides are still respected, but should be larger than the browser timeout. Native-host environment is process-scoped, so GUI-launched browser mediators usually need to be restarted to pick up browser-timeout environment changes.
+
 ## Development
 
 Durable repo guidance lives under `docs/`; start with `docs/README.md` and `AGENTS.md` if you are an agent.
@@ -254,6 +256,8 @@ The normal source gate is:
 ```sh
 ./scripts/validate fast
 ```
+
+It checks source/manifests and extension syntax without requiring a freshly signed Firefox XPI.
 
 Before release-sensitive changes, run:
 

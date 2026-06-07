@@ -6,9 +6,9 @@ usage() {
 Usage: scripts/validate [fast|full|release]
 
 Modes:
-  fast     format check, version sync, extension JS syntax, clippy, nextest
+  fast     format check, source version sync, extension JS syntax, clippy, nextest
   full     fast plus nix flake check
-  release  full plus source-version printout for tag sanity
+  release  full plus signed Firefox XPI sync and source-version printout for tag sanity
 EOF
 }
 
@@ -41,7 +41,13 @@ check_format() {
 }
 
 check_versions() {
-  section "Checking version metadata"
+  section "Checking source version metadata"
+  require_command python3
+  python3 scripts/check_versions.py --source-only
+}
+
+check_signed_firefox_xpi() {
+  section "Checking signed Firefox XPI metadata"
   require_command python3
   python3 scripts/check_versions.py
 }
@@ -99,18 +105,26 @@ run_fast() {
   check_tests
 }
 
+run_full() {
+  run_fast
+  check_flake
+}
+
+run_release() {
+  run_full
+  check_signed_firefox_xpi
+  print_release_version
+}
+
 case "$mode" in
   fast)
     run_fast
     ;;
   full)
-    run_fast
-    check_flake
+    run_full
     ;;
   release)
-    run_fast
-    check_flake
-    print_release_version
+    run_release
     ;;
   -h | --help | help)
     usage

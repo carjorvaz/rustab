@@ -1,6 +1,6 @@
 use rustab_protocol::{
-    is_pid_alive, prepare_socket_dir, read_message, read_message_lenient, socket_path,
-    write_message, REQUEST_TIMEOUT_SECS,
+    browser_request_timeout_for, is_pid_alive, prepare_socket_dir, read_message,
+    read_message_lenient, socket_path, write_message,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -16,18 +16,22 @@ static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 type PendingResponses = Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>;
 
-/// Log to stderr (stdout is reserved for native messaging).
+// Log to stderr (stdout is reserved for native messaging).
 macro_rules! log {
     ($($arg:tt)*) => {
-        eprintln!("[rustab-mediator] {}", format!($($arg)*))
+        eprintln!("[rustab-mediator] {}", format_args!($($arg)*))
     };
 }
 
 #[tokio::main]
 async fn main() {
     let browser = detect_browser();
+    let request_timeout = browser_request_timeout_for(&browser);
     let pid = std::process::id();
-    log!("starting (browser={browser}, pid={pid})");
+    log!(
+        "starting (browser={browser}, pid={pid}, request_timeout={}s)",
+        request_timeout.as_secs()
+    );
 
     let sock_dir = match prepare_socket_dir() {
         Ok(dir) => dir,
@@ -103,7 +107,7 @@ async fn main() {
                 Ok((stream, _)) => {
                     let tx = browser_tx.clone();
                     let pend = pending.clone();
-                    tokio::spawn(handle_client(stream, tx, pend));
+                    tokio::spawn(handle_client(stream, tx, pend, request_timeout));
                 }
                 Err(e) => {
                     log!("accept error: {e}");
@@ -147,6 +151,7 @@ async fn handle_client(
     stream: tokio::net::UnixStream,
     browser_tx: mpsc::Sender<Value>,
     pending: PendingResponses,
+    request_timeout: std::time::Duration,
 ) {
     let (mut reader, mut writer) = stream.into_split();
 
@@ -179,8 +184,7 @@ async fn handle_client(
         }
 
         // Wait for response with timeout
-        let response =
-            tokio::time::timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS), rx).await;
+        let response = tokio::time::timeout(request_timeout, rx).await;
         match response {
             Ok(Ok(mut val)) => {
                 // Restore the client's original ID

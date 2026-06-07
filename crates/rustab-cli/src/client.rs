@@ -1,6 +1,6 @@
 use rustab_protocol::{
-    browser_prefix, is_pid_alive, parse_socket_name, read_message, socket_dir, validate_socket_dir,
-    write_message, RpcRequest, RpcResponse, TabRef, WindowRef, REQUEST_TIMEOUT_SECS,
+    browser_prefix, client_request_timeout_for, is_pid_alive, parse_socket_name, read_message,
+    socket_dir, validate_socket_dir, write_message, RpcRequest, RpcResponse, TabRef, WindowRef,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -63,14 +63,23 @@ where
     let request_id = request.id;
     let request_value =
         serde_json::to_value(request).map_err(|e| format!("encode request: {e}"))?;
-    let response = send_request(&socket.path, &request_value).await?;
+    let response = send_request(
+        &socket.path,
+        &request_value,
+        client_request_timeout_for(&socket.browser),
+    )
+    .await?;
     let response: RpcResponse<T> =
         serde_json::from_value(response).map_err(|e| format!("invalid response: {e}"))?;
 
     response.into_result_for_request(request_id)
 }
 
-async fn send_request(socket_path: &std::path::Path, request: &Value) -> Result<Value, String> {
+async fn send_request(
+    socket_path: &std::path::Path,
+    request: &Value,
+    request_timeout: std::time::Duration,
+) -> Result<Value, String> {
     let stream = UnixStream::connect(socket_path)
         .await
         .map_err(|e| format!("connect: {e}"))?;
@@ -81,13 +90,10 @@ async fn send_request(socket_path: &std::path::Path, request: &Value) -> Result<
         .await
         .map_err(|e| format!("write: {e}"))?;
 
-    tokio::time::timeout(
-        std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS),
-        read_message(&mut reader),
-    )
-    .await
-    .map_err(|_| "timeout".to_string())?
-    .map_err(|e| format!("read: {e}"))
+    tokio::time::timeout(request_timeout, read_message(&mut reader))
+        .await
+        .map_err(|_| "timeout".to_string())?
+        .map_err(|e| format!("read: {e}"))
 }
 
 pub fn resolve_socket<'a>(

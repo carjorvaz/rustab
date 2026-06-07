@@ -1,10 +1,18 @@
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const REQUEST_TIMEOUT_SECS: u64 = 10;
+pub const DEFAULT_BROWSER_REQUEST_TIMEOUT_SECS: u64 = REQUEST_TIMEOUT_SECS;
+pub const DEFAULT_CLIENT_REQUEST_TIMEOUT_SECS: u64 = REQUEST_TIMEOUT_SECS + 5;
+pub const ORION_BROWSER_REQUEST_TIMEOUT_SECS: u64 = 60;
+pub const ORION_CLIENT_REQUEST_TIMEOUT_SECS: u64 = ORION_BROWSER_REQUEST_TIMEOUT_SECS + 10;
+pub const BROWSER_REQUEST_TIMEOUT_ENV: &str = "RUSTAB_BROWSER_REQUEST_TIMEOUT_SECS";
+pub const CLIENT_REQUEST_TIMEOUT_ENV: &str = "RUSTAB_CLIENT_REQUEST_TIMEOUT_SECS";
 pub const LIST_TABS_METHOD: &str = "list_tabs";
 pub const LIST_WINDOWS_METHOD: &str = "list_windows";
+pub const LIST_WINDOWS_LIGHTWEIGHT_METHOD: &str = "list_windows_lightweight";
 pub const CLOSE_TABS_METHOD: &str = "close_tabs";
 pub const ACTIVATE_TAB_METHOD: &str = "activate_tab";
 pub const OPEN_TAB_METHOD: &str = "open_tab";
@@ -13,6 +21,70 @@ pub const MOVE_TABS_METHOD: &str = "move_tabs";
 const DEFAULT_REQUEST_ID: u64 = 1;
 const MAX_INBOUND_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_OUTBOUND_MESSAGE_BYTES: usize = 1024 * 1024;
+
+pub fn browser_request_timeout_for(browser: &str) -> Duration {
+    Duration::from_secs(browser_request_timeout_secs_from_value(
+        browser,
+        std::env::var(BROWSER_REQUEST_TIMEOUT_ENV).ok().as_deref(),
+    ))
+}
+
+pub fn client_request_timeout_for(browser: &str) -> Duration {
+    let browser_override = std::env::var(BROWSER_REQUEST_TIMEOUT_ENV).ok();
+    let client_override = std::env::var(CLIENT_REQUEST_TIMEOUT_ENV).ok();
+    Duration::from_secs(client_request_timeout_secs_from_values(
+        browser,
+        client_override.as_deref(),
+        browser_override.as_deref(),
+    ))
+}
+
+fn browser_request_timeout_secs_from_value(browser: &str, value: Option<&str>) -> u64 {
+    timeout_secs_from_value(value, default_browser_request_timeout_secs(browser))
+}
+
+fn client_request_timeout_secs_from_values(
+    browser: &str,
+    client_override: Option<&str>,
+    browser_override: Option<&str>,
+) -> u64 {
+    if let Some(client_timeout) = parse_positive_timeout_secs(client_override) {
+        return client_timeout;
+    }
+
+    browser_request_timeout_secs_from_value(browser, browser_override)
+        .saturating_add(client_timeout_headroom_secs(browser))
+}
+
+fn client_timeout_headroom_secs(browser: &str) -> u64 {
+    default_client_request_timeout_secs(browser) - default_browser_request_timeout_secs(browser)
+}
+
+fn default_browser_request_timeout_secs(browser: &str) -> u64 {
+    if browser.eq_ignore_ascii_case("orion") {
+        ORION_BROWSER_REQUEST_TIMEOUT_SECS
+    } else {
+        DEFAULT_BROWSER_REQUEST_TIMEOUT_SECS
+    }
+}
+
+fn default_client_request_timeout_secs(browser: &str) -> u64 {
+    if browser.eq_ignore_ascii_case("orion") {
+        ORION_CLIENT_REQUEST_TIMEOUT_SECS
+    } else {
+        DEFAULT_CLIENT_REQUEST_TIMEOUT_SECS
+    }
+}
+
+fn timeout_secs_from_value(value: Option<&str>, default_secs: u64) -> u64 {
+    parse_positive_timeout_secs(value).unwrap_or(default_secs)
+}
+
+fn parse_positive_timeout_secs(value: Option<&str>) -> Option<u64> {
+    value
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+}
 
 /// Read a native-messaging-framed JSON message.
 ///
@@ -204,6 +276,20 @@ pub struct WindowInfo {
     pub active_tab_url: String,
 }
 
+/// Lightweight window info without tab population — fast even with 900+ tabs.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+pub struct WindowInfoLightweight {
+    pub id: u64,
+    #[serde(default)]
+    pub focused: bool,
+    #[serde(default, rename = "type")]
+    pub window_type: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub incognito: bool,
+}
+
 /// Socket directory: `/tmp/rustab-{uid}/`
 pub fn socket_dir() -> PathBuf {
     #[cfg(unix)]
@@ -330,7 +416,13 @@ pub fn browser_prefix(browser: &str) -> &str {
         "zen" => "z",
         "edge" => "e",
         "vivaldi" => "v",
-        _ => "u",
+        other => {
+            debug_assert!(
+                false,
+                "unknown browser {other:?} — add a prefix to browser_prefix"
+            );
+            "u"
+        }
     }
 }
 
@@ -417,6 +509,9 @@ unsafe extern "C" {
 }
 
 #[cfg(unix)]
+const EPERM: i32 = 1;
+
+#[cfg(unix)]
 fn effective_uid() -> u32 {
     unsafe { geteuid() }
 }
@@ -427,7 +522,10 @@ fn send_signal(pid: i32, signal: i32) -> i32 {
 }
 
 /// Check if a PID is alive.
-/// `kill(pid, 0)` works on Unix even when `/proc` is absent (for example macOS).
+///
+/// `kill(pid, 0)` returns 0 when the process exists and is signallable,
+/// -1/ESRCH when it does not exist, and -1/EPERM when it exists but is
+/// owned by another user. Both 0 and EPERM mean "alive."
 pub fn is_pid_alive(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid) else {
         return false;
@@ -435,7 +533,8 @@ pub fn is_pid_alive(pid: u32) -> bool {
 
     match send_signal(pid, 0) {
         0 => true,
-        _ => matches!(std::io::Error::last_os_error().raw_os_error(), Some(1)),
+        // EPERM: process exists but we lack permission to signal it.
+        _ => matches!(std::io::Error::last_os_error().raw_os_error(), Some(EPERM)),
     }
 }
 
@@ -630,6 +729,57 @@ mod tests {
 
         assert_eq!(request.id, 42);
         assert_eq!(request.method, LIST_TABS_METHOD);
+    }
+
+    #[test]
+    fn orion_uses_longer_live_bridge_timeouts() {
+        assert!(
+            default_browser_request_timeout_secs("orion")
+                > default_browser_request_timeout_secs("brave")
+        );
+        assert!(
+            default_client_request_timeout_secs("orion")
+                > default_client_request_timeout_secs("brave")
+        );
+    }
+
+    #[test]
+    fn client_timeout_exceeds_browser_timeout() {
+        for browser in ["brave", "firefox", "orion"] {
+            assert!(
+                default_client_request_timeout_secs(browser)
+                    > default_browser_request_timeout_secs(browser),
+                "client timeout should outlast mediator/browser timeout for {browser}"
+            );
+        }
+    }
+
+    #[test]
+    fn client_timeout_tracks_browser_timeout_override_when_client_override_is_unset() {
+        assert_eq!(
+            client_request_timeout_secs_from_values("orion", None, Some("120")),
+            130
+        );
+        assert_eq!(
+            client_request_timeout_secs_from_values("brave", None, Some("120")),
+            125
+        );
+    }
+
+    #[test]
+    fn explicit_client_timeout_override_is_respected() {
+        assert_eq!(
+            client_request_timeout_secs_from_values("orion", Some("65"), Some("120")),
+            65
+        );
+    }
+
+    #[test]
+    fn timeout_override_parser_rejects_zero_and_invalid_values() {
+        assert_eq!(timeout_secs_from_value(Some("25"), 10), 25);
+        assert_eq!(timeout_secs_from_value(Some("0"), 10), 10);
+        assert_eq!(timeout_secs_from_value(Some("nope"), 10), 10);
+        assert_eq!(timeout_secs_from_value(None, 10), 10);
     }
 
     #[test]

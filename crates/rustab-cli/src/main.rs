@@ -19,15 +19,13 @@ use crate::input::{
     WindowArg,
 };
 use crate::install::cmd_install;
-use crate::listing::{TabListing, WindowListing};
 use crate::output::print_json;
 use crate::synced_command::cmd_synced_list;
 use clap::Parser;
 use rustab_protocol::{
     browser_prefix, format_tab_id, parse_tab_id, RpcRequest, TabInfo, ACTIVATE_TAB_METHOD,
-    CLOSE_TABS_METHOD, LIST_TABS_METHOD, LIST_WINDOWS_METHOD, MOVE_TABS_METHOD, OPEN_TAB_METHOD,
+    CLOSE_TABS_METHOD, LIST_TABS_METHOD, MOVE_TABS_METHOD, OPEN_TAB_METHOD,
 };
-use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 #[tokio::main]
@@ -88,31 +86,6 @@ async fn tab_window_id(sock: &BrowserSocket, tab_id: u64) -> Result<u64, String>
         .ok_or_else(|| format!("target tab {tab_id} was not found"))
 }
 
-async fn collect_listing_rows<T, Row>(
-    sockets: &[BrowserSocket],
-    method: &str,
-    into_row: impl Fn(&BrowserSocket, T) -> Row,
-) -> Option<Vec<Row>>
-where
-    T: DeserializeOwned,
-{
-    let mut rows = Vec::new();
-    let mut successful_responses = 0;
-
-    for sock in sockets {
-        let request = RpcRequest::new(method, json!({}));
-        match send_rpc::<Vec<T>>(sock, &request).await {
-            Ok(items) => {
-                successful_responses += 1;
-                rows.extend(items.into_iter().map(|item| into_row(sock, item)));
-            }
-            Err(error) => eprintln!("{} (pid {}): {error}", sock.browser, sock.pid),
-        }
-    }
-
-    (successful_responses > 0).then_some(rows)
-}
-
 async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
     let sockets = discover_sockets(browser_filter);
 
@@ -121,9 +94,7 @@ async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
         return 1;
     }
 
-    let Some(mut all_tabs) =
-        collect_listing_rows(&sockets, LIST_TABS_METHOD, TabListing::new).await
-    else {
+    let Some(mut all_tabs) = listing::fetch_tab_listings(&sockets).await else {
         return 1;
     };
     listing::sort_tab_listings(&mut all_tabs);
@@ -149,11 +120,10 @@ async fn cmd_windows(format: &OutputFormat, browser_filter: Option<&str>) -> i32
         return 1;
     }
 
-    let Some(mut all_windows) =
-        collect_listing_rows(&sockets, LIST_WINDOWS_METHOD, WindowListing::new).await
-    else {
+    let Some(mut all_windows) = listing::fetch_window_listings(&sockets).await else {
         return 1;
     };
+
     listing::sort_window_listings(&mut all_windows);
 
     match format {
@@ -218,8 +188,6 @@ async fn cmd_close(tab_ids: Vec<String>) -> i32 {
     i32::from(failed)
 }
 
-const CROSS_INSTANCE_MOVE_ERROR: &str = "Cannot move tabs across browser instances.";
-
 fn require_same_browser_instance(
     source: &BrowserSocket,
     target: &BrowserSocket,
@@ -227,7 +195,56 @@ fn require_same_browser_instance(
     if source == target {
         Ok(())
     } else {
-        Err(CROSS_INSTANCE_MOVE_ERROR)
+        Err("Cannot move tabs across browser instances.")
+    }
+}
+
+/// Resolve the target window ID for a move operation from `--to-window` or `--to-tab`.
+async fn resolve_target_window_id(
+    sockets: &[BrowserSocket],
+    source_socket: &BrowserSocket,
+    to_window: Option<&str>,
+    to_tab: Option<&str>,
+) -> Result<u64, String> {
+    match (to_window, to_tab) {
+        (Some(window_arg), _) => {
+            let (target_socket, window_id) = resolve_window_socket(sockets, window_arg)?;
+            require_same_browser_instance(source_socket, target_socket)
+                .map_err(|e| e.to_string())?;
+            Ok(window_id)
+        }
+        (_, Some(tab_id)) => {
+            let target_tab_ref = parse_tab_id(tab_id).ok_or_else(|| {
+                format!("Invalid tab ID format: {tab_id} (expected prefix.pid.id, e.g. c.4242.123)")
+            })?;
+            let target_socket =
+                resolve_socket_for_tab_ref(sockets, target_tab_ref).map_err(|e| e.to_string())?;
+            require_same_browser_instance(source_socket, target_socket)
+                .map_err(|e| e.to_string())?;
+            tab_window_id(target_socket, target_tab_ref.tab_id)
+                .await
+                .map_err(|error| {
+                    format!(
+                        "{} (pid {}): {error}",
+                        target_socket.browser, target_socket.pid
+                    )
+                })
+        }
+        _ => Err("A target is required. Pass --to-window or --to-tab.".to_string()),
+    }
+}
+
+/// Resolve a window argument to (socket, window_id).
+fn resolve_window_socket<'a>(
+    sockets: &'a [BrowserSocket],
+    window_arg: &str,
+) -> Result<(&'a BrowserSocket, u64), String> {
+    match parse_window_arg(window_arg)? {
+        WindowArg::Raw(window_id) => {
+            socket_for_raw_window_id(sockets, None).map(|sock| (sock, window_id))
+        }
+        WindowArg::Scoped(window_ref) => resolve_socket_for_window_ref(sockets, window_ref)
+            .map(|sock| (sock, window_ref.window_id)),
     }
 }
 
@@ -287,67 +304,14 @@ async fn cmd_move(
         return 1;
     };
 
-    let target_window_id = match (to_window, to_tab) {
-        (Some(window_id), None) => match parse_window_arg(window_id) {
-            Ok(WindowArg::Raw(window_id)) => window_id,
-            Ok(WindowArg::Scoped(window_ref)) => {
-                let target_socket = match resolve_socket_for_window_ref(&sockets, window_ref) {
-                    Ok(sock) => sock,
-                    Err(error) => {
-                        eprintln!("{error}");
-                        return 1;
-                    }
-                };
-
-                if let Err(error) = require_same_browser_instance(source_socket, target_socket) {
-                    eprintln!("{error}");
-                    return 1;
-                }
-
-                window_ref.window_id
-            }
+    let target_window_id =
+        match resolve_target_window_id(&sockets, source_socket, to_window, to_tab).await {
+            Ok(id) => id,
             Err(error) => {
                 eprintln!("{error}");
                 return 1;
             }
-        },
-        (None, Some(tab_id)) => {
-            let Some(target_tab_ref) = parse_tab_id(tab_id) else {
-                eprintln!(
-                    "Invalid tab ID format: {tab_id} (expected prefix.pid.id, e.g. c.4242.123)"
-                );
-                return 1;
-            };
-
-            let target_socket = match resolve_socket_for_tab_ref(&sockets, target_tab_ref) {
-                Ok(sock) => sock,
-                Err(error) => {
-                    eprintln!("{error}");
-                    return 1;
-                }
-            };
-
-            if let Err(error) = require_same_browser_instance(source_socket, target_socket) {
-                eprintln!("{error}");
-                return 1;
-            }
-
-            match tab_window_id(target_socket, target_tab_ref.tab_id).await {
-                Ok(window_id) => window_id,
-                Err(error) => {
-                    eprintln!(
-                        "{} (pid {}): {error}",
-                        target_socket.browser, target_socket.pid
-                    );
-                    return 1;
-                }
-            }
-        }
-        _ => {
-            eprintln!("A target is required. Pass --to-window or --to-tab.");
-            return 1;
-        }
-    };
+        };
 
     let request = RpcRequest::new(
         MOVE_TABS_METHOD,
@@ -417,32 +381,16 @@ async fn cmd_open(
     }
 
     let (target_sockets, window_id) = match window {
-        Some(window) => match parse_window_arg(window) {
-            Ok(WindowArg::Raw(window_id)) => {
-                let sock = match socket_for_raw_window_id(&sockets, browser_filter) {
-                    Ok(sock) => sock,
-                    Err(error) => {
-                        eprintln!("{error}");
-                        return 1;
-                    }
-                };
-                (vec![sock], Some(window_id))
-            }
-            Ok(WindowArg::Scoped(window_ref)) => {
-                let sock = match resolve_socket_for_window_ref(&sockets, window_ref) {
-                    Ok(sock) => sock,
-                    Err(error) => {
-                        eprintln!("{error}");
-                        return 1;
-                    }
-                };
-                (vec![sock], Some(window_ref.window_id))
-            }
-            Err(error) => {
-                eprintln!("{error}");
-                return 1;
-            }
-        },
+        Some(window_arg) => {
+            let (sock, id) = match resolve_window_socket(&sockets, window_arg) {
+                Ok(pair) => pair,
+                Err(error) => {
+                    eprintln!("{error}");
+                    return 1;
+                }
+            };
+            (vec![sock], Some(id))
+        }
         None => (sockets.iter().collect::<Vec<_>>(), None),
     };
 
