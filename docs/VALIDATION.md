@@ -110,7 +110,7 @@ Useful local review commands:
 ```sh
 jj status
 jj diff
-difft git
+just review
 ```
 
 Before publishing or tagging, also use Git-native checks:

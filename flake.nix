@@ -92,6 +92,7 @@
         in
         assert chromeManifest.version == cargoVersion;
         assert firefoxManifest.version == cargoVersion;
+        assert orionManifest.version == cargoVersion;
         cargoVersion;
       chromeExtensionId = "nddbmnpippfilnjoebpcnfbpebnllbgo";
       firefoxExtensionId = firefoxManifest.browser_specific_settings.gecko.id;

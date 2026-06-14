@@ -109,21 +109,6 @@
             break;
           }
 
-          case "list_windows_lightweight": {
-            const windows = await api.windows.getAll({
-              populate: false,
-              windowTypes: ["normal"],
-            });
-            result = windows.map((w) => ({
-              id: w.id,
-              focused: w.focused || false,
-              type: w.type || "",
-              state: w.state || "",
-              incognito: w.incognito || false,
-            }));
-            break;
-          }
-
           case "close_tabs": {
             const ids = params.tab_ids;
             if (!Array.isArray(ids) || ids.length === 0) {

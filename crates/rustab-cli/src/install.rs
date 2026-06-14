@@ -37,6 +37,8 @@ pub fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<S
 
     let mut installed_locations = 0;
     let mut installed_browsers = 0;
+    let mut installed_orion = false;
+    let mut installed_non_orion = false;
 
     for browser in BROWSERS {
         let config_path = home.join(browser.config_dir);
@@ -77,6 +79,11 @@ pub fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<S
 
         if wrote_manifest_for_browser {
             installed_browsers += 1;
+            if browser.name == "orion" {
+                installed_orion = true;
+            } else {
+                installed_non_orion = true;
+            }
         }
     }
 
@@ -93,9 +100,22 @@ pub fn cmd_install(mediator_path: Option<PathBuf>, chrome_extension_id: Option<S
         println!("Pass --chrome-extension-id to override it for a custom unpacked build.");
     }
     println!("Next steps:");
-    println!(
-        "  1. Install the browser extension (load unpacked from extensions/chrome or open the signed Firefox XPI)"
-    );
+    if installed_orion && installed_non_orion {
+        println!("  1. Install the browser extension:");
+        println!("     - Chrome/Chromium-family: load unpacked from extensions/chrome");
+        println!("     - Firefox: open the signed Firefox XPI");
+        println!(
+            "     - Orion: load unpacked from extensions/orion/ or use the flake orion-extension package"
+        );
+    } else if installed_orion {
+        println!(
+            "  1. Install the Orion extension (load unpacked from extensions/orion/ or use the flake orion-extension package)"
+        );
+    } else {
+        println!(
+            "  1. Install the browser extension (load unpacked from extensions/chrome or open the signed Firefox XPI)"
+        );
+    }
     println!("  2. Restart your browser");
     println!("  3. Run `rustab clients` to verify the connection");
 

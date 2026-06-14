@@ -70,8 +70,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=REPO_ROOT / "dist" / "chromium",
-        help="Directory where packaged artifacts should be written.",
+        default=Path.cwd() / "dist" / "chromium",
+        help="Directory where packaged artifacts should be written. Defaults to ./dist/chromium in the caller's current directory.",
     )
     parser.add_argument(
         "--browser-binary",

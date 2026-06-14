@@ -105,6 +105,7 @@ That means `rustab install` may report multiple manifest locations for a single 
 #### Orion
 
 On macOS, load the unpacked Orion extension from `extensions/orion/` (or the flake's `orion-extension` package) with Orion's `Tools > Extensions > Install from Disk` flow. Orion 1.0.x exposes the Chrome WebExtensions APIs Rustab needs, but its current extension runtime is more reliable with a Manifest V2 persistent background page than with Chromium's Manifest V3 service-worker background.
+Orion live commands (`list`, `windows`, `close`, `move`, `activate`, `open`) use the same WebExtension semantics as other supported browsers; Orion-only user-visible pieces are install/runtime compatibility and read-only `rustab synced list --browser orion`.
 
 `rustab install` writes Orion's native messaging host manifest to `~/Library/Application Support/Orion/NativeMessagingHosts`.
 
@@ -279,10 +280,10 @@ nix run .#check-version-sync
 
 If the same Firefox version has already been submitted to AMO and is already public, `refresh-firefox-xpi` will download that existing signed XPI instead of failing on a duplicate-version error. That makes reruns and release recovery much calmer.
 
-The Chromium release helper also works well from the dev shell:
+Package a managed Chromium release bundle with the flake app:
 
 ```sh
-nix develop -c package-chromium-release -- \
+nix run .#package-chromium-release -- \
   --key /secure/path/rustab-chromium.pem \
   --base-url https://example.com/rustab/chromium
 ```

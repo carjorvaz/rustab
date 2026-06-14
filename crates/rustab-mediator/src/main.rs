@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixListener;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
@@ -80,10 +80,11 @@ async fn main() {
 
     // Task: read from stdin (native messaging from browser extension)
     let pending_for_stdin = pending.clone();
+    let stdin_browser = browser.clone();
     let stdin_handle = tokio::spawn(async move {
         let mut stdin = tokio::io::stdin();
         loop {
-            match read_message_lenient(&mut stdin).await {
+            match read_browser_message(&stdin_browser, &mut stdin).await {
                 Ok(msg) => {
                     if let Some(id) = request_id(&msg) {
                         let mut map = pending_for_stdin.lock().await;
@@ -130,6 +131,17 @@ async fn main() {
 
 fn request_id(message: &Value) -> Option<u64> {
     message.get("id").and_then(Value::as_u64)
+}
+
+async fn read_browser_message<R>(browser: &str, reader: &mut R) -> std::io::Result<Value>
+where
+    R: AsyncRead + Unpin,
+{
+    if browser.eq_ignore_ascii_case("orion") {
+        read_message_lenient(reader).await
+    } else {
+        read_message(reader).await
+    }
 }
 
 fn set_request_id(message: &mut Value, id: u64) {
@@ -338,7 +350,45 @@ fn cleanup_stale_sockets(dir: &std::path::Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::detect_browser_from_launch_context;
+    use super::{detect_browser_from_launch_context, read_browser_message};
+
+    fn short_utf8_frame(message: &serde_json::Value) -> Vec<u8> {
+        let payload = serde_json::to_vec(message).expect("json payload");
+        let short_len = String::from_utf8(payload.clone())
+            .expect("utf8 json")
+            .chars()
+            .count();
+        assert!(short_len < payload.len());
+
+        let mut framed = Vec::new();
+        framed.extend_from_slice(&(short_len as u32).to_le_bytes());
+        framed.extend_from_slice(&payload);
+        framed
+    }
+
+    #[tokio::test]
+    async fn orion_reader_recovers_short_utf8_length_prefix() {
+        let message = serde_json::json!({"id": 7, "result": {"title": "café tab"}});
+        let framed = short_utf8_frame(&message);
+
+        let mut reader = std::io::Cursor::new(framed);
+        let parsed = read_browser_message("Orion", &mut reader)
+            .await
+            .expect("orion reader recovers frame");
+        assert_eq!(parsed, message);
+    }
+
+    #[tokio::test]
+    async fn non_orion_reader_rejects_short_utf8_length_prefix() {
+        let message = serde_json::json!({"id": 7, "result": {"title": "café tab"}});
+        let framed = short_utf8_frame(&message);
+
+        let mut reader = std::io::Cursor::new(framed);
+        let error = read_browser_message("chrome", &mut reader)
+            .await
+            .expect_err("non-orion reader rejects frame");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
 
     #[test]
     fn detects_firefox_from_parent_process_when_args_omit_mozilla_path() {

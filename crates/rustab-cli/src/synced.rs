@@ -51,7 +51,7 @@ fn list_synced_tabs_from_home(
 #[cfg(not(target_os = "macos"))]
 fn list_orion_synced_tabs(home: &Path, archived: bool) -> Result<Vec<SyncedTab>, String> {
     let _ = (home, archived);
-    Ok(vec![])
+    Err("Orion synced tabs are only supported on macOS".to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -567,6 +567,14 @@ mod tests {
         let error = list_synced_tabs_from_home(Path::new("/tmp"), Some("brave"), false)
             .expect_err("expected unsupported browser error");
         assert!(error.contains("Synced tabs are not supported for browser 'brave' yet"));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn rejects_orion_synced_tabs_off_macos() {
+        let error = list_synced_tabs_from_home(Path::new("/tmp"), Some("orion"), false)
+            .expect_err("expected unsupported platform error");
+        assert!(error.contains("Orion synced tabs are only supported on macOS"));
     }
 
     #[cfg(target_os = "macos")]

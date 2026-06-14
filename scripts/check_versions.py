@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
+import base64
+import binascii
+import hashlib
 import json
 import sys
 import tomllib
@@ -15,6 +18,7 @@ ORION_MANIFEST = REPO_ROOT / "extensions" / "orion" / "manifest.json"
 SIGNED_FIREFOX_XPI = (
     REPO_ROOT / "extensions" / "firefox-signed" / "rustab@rustab.dev.xpi"
 )
+CHROME_EXTENSION_ID = "nddbmnpippfilnjoebpcnfbpebnllbgo"
 FIREFOX_EXTENSION_FILES = [
     "manifest.json",
     "background.js",
@@ -82,6 +86,12 @@ def firefox_addon_id(manifest: dict) -> str:
     return manifest["browser_specific_settings"]["gecko"]["id"]
 
 
+def chrome_extension_id_from_key(manifest_key: str) -> str:
+    key_bytes = base64.b64decode(manifest_key, validate=True)
+    digest = hashlib.sha256(key_bytes).hexdigest()[:32]
+    return "".join(chr(ord("a") + int(nibble, 16)) for nibble in digest)
+
+
 def main() -> int:
     args = parse_args()
 
@@ -110,6 +120,31 @@ def main() -> int:
 
     firefox_manifest_id = firefox_addon_id(firefox_manifest)
     signed_firefox_id = None
+
+    chrome_manifest_key = chrome_manifest.get("key")
+    orion_manifest_key = orion_manifest.get("key")
+    if not chrome_manifest_key:
+        mismatches.append("Chromium manifest is missing its stable extension key")
+    else:
+        try:
+            chrome_manifest_id = chrome_extension_id_from_key(chrome_manifest_key)
+        except binascii.Error as error:
+            mismatches.append(f"Chromium manifest key is invalid base64: {error}")
+        else:
+            if chrome_manifest_id != CHROME_EXTENSION_ID:
+                mismatches.append(
+                    "Chromium manifest key derives extension id "
+                    f"{chrome_manifest_id!r}, expected {CHROME_EXTENSION_ID!r}"
+                )
+
+    if not orion_manifest_key:
+        mismatches.append("Orion manifest is missing its stable extension key")
+    elif chrome_manifest_key and orion_manifest_key != chrome_manifest_key:
+        mismatches.append(
+            "Orion manifest has key "
+            f"{orion_manifest_key!r}, expected Chromium manifest key {chrome_manifest_key!r}"
+        )
+
     if signed_firefox_manifest is not None:
         signed_firefox_id = firefox_addon_id(signed_firefox_manifest)
         if signed_firefox_id != firefox_manifest_id:
@@ -142,7 +177,6 @@ def main() -> int:
                 mismatches.append(
                     f"Signed Firefox XPI {relative_name} differs from extensions/firefox/{relative_name}"
                 )
-
     shared_core = SHARED_EXTENSION_CORE.read_bytes()
     for browser in ["chrome", "firefox", "orion"]:
         core_path = REPO_ROOT / "extensions" / browser / "background_core.js"

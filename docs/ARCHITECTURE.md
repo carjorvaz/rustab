@@ -56,9 +56,10 @@ Preserve scoped IDs in user-facing examples and tests unless a test is explicitl
 ## Change Boundaries
 
 - Protocol changes usually need synchronized updates across `rustab-protocol`, CLI/mediator handling, extension code, tests, and docs.
-- Extension manifest version changes must stay synchronized with `Cargo.toml` and both browser manifests. Use `scripts/check_versions.py` or `nix run .#check-version-sync`.
+- Extension manifest version changes must stay synchronized with `Cargo.toml` and all source browser manifests. Use `scripts/check_versions.py` or `nix run .#check-version-sync`.
 - Firefox extension source changes require re-signing or refreshing `extensions/firefox-signed/rustab@rustab.dev.xpi` before release-grade flake checks can prove the packaged XPI matches the source version.
 - Chromium managed-release changes must preserve the extension ID derived from the private key/public manifest key relationship; never commit private keys.
+- Keep Orion-specific code limited to manifest/path/runtime compatibility and local read-only synced-state parsing; live tab/window RPCs should remain shared with other WebExtension browsers.
 
 ## Compatibility Commitments
 

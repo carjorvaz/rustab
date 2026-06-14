@@ -12,7 +12,6 @@ pub const BROWSER_REQUEST_TIMEOUT_ENV: &str = "RUSTAB_BROWSER_REQUEST_TIMEOUT_SE
 pub const CLIENT_REQUEST_TIMEOUT_ENV: &str = "RUSTAB_CLIENT_REQUEST_TIMEOUT_SECS";
 pub const LIST_TABS_METHOD: &str = "list_tabs";
 pub const LIST_WINDOWS_METHOD: &str = "list_windows";
-pub const LIST_WINDOWS_LIGHTWEIGHT_METHOD: &str = "list_windows_lightweight";
 pub const CLOSE_TABS_METHOD: &str = "close_tabs";
 pub const ACTIVATE_TAB_METHOD: &str = "activate_tab";
 pub const OPEN_TAB_METHOD: &str = "open_tab";
@@ -274,20 +273,6 @@ pub struct WindowInfo {
     pub active_tab_title: String,
     #[serde(default)]
     pub active_tab_url: String,
-}
-
-/// Lightweight window info without tab population — fast even with 900+ tabs.
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
-pub struct WindowInfoLightweight {
-    pub id: u64,
-    #[serde(default)]
-    pub focused: bool,
-    #[serde(default, rename = "type")]
-    pub window_type: String,
-    #[serde(default)]
-    pub state: String,
-    #[serde(default)]
-    pub incognito: bool,
 }
 
 /// Socket directory: `/tmp/rustab-{uid}/`

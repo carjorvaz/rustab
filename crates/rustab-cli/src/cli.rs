@@ -25,7 +25,7 @@ pub enum Command {
         /// Output format
         #[arg(short, long, default_value = "tsv")]
         format: OutputFormat,
-        /// Filter by browser (e.g. chrome, firefox, brave)
+        /// Filter by browser (e.g. chrome, firefox, brave, orion)
         #[arg(short, long)]
         browser: Option<String>,
     },
@@ -34,7 +34,7 @@ pub enum Command {
         /// Output format
         #[arg(short, long, default_value = "tsv")]
         format: OutputFormat,
-        /// Filter by browser (e.g. chrome, firefox, brave)
+        /// Filter by browser (e.g. chrome, firefox, brave, orion)
         #[arg(short, long)]
         browser: Option<String>,
     },
@@ -81,7 +81,7 @@ pub enum Command {
     Clients,
     /// Diagnose native messaging, extension, and mediator connectivity
     Doctor {
-        /// Filter by browser (e.g. chrome, firefox, brave)
+        /// Filter by browser (e.g. chrome, firefox, brave, orion)
         #[arg(short, long)]
         browser: Option<String>,
     },

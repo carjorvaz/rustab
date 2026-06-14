@@ -2,10 +2,9 @@ use crate::client::{discover_sockets, send_rpc, BrowserSocket};
 use crate::install::manifest_target_dirs;
 use rustab_protocol::{
     browser_prefix, socket_dir, validate_socket_dir, BrowserManifestInfo, RpcRequest, TabInfo,
-    BROWSERS, CHROME_EXTENSION_ID, FIREFOX_EXTENSION_ID, LIST_TABS_METHOD,
-    LIST_WINDOWS_LIGHTWEIGHT_METHOD, LIST_WINDOWS_METHOD, NATIVE_HOST_NAME,
+    BROWSERS, CHROME_EXTENSION_ID, FIREFOX_EXTENSION_ID, LIST_TABS_METHOD, LIST_WINDOWS_METHOD,
+    NATIVE_HOST_NAME,
 };
-use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -219,11 +218,8 @@ async fn check_connected_browsers(report: &mut Report, browser_filter: Option<&s
 }
 
 /// Send a window-list RPC and return the window count, or the error string.
-async fn window_check_count<T: DeserializeOwned>(
-    socket: &BrowserSocket,
-    method: &str,
-) -> Result<usize, String> {
-    send_rpc::<Vec<T>>(socket, &RpcRequest::new(method, json!({})))
+async fn window_check_count(socket: &BrowserSocket) -> Result<usize, String> {
+    send_rpc::<Vec<Value>>(socket, &RpcRequest::new(LIST_WINDOWS_METHOD, json!({})))
         .await
         .map(|w| w.len())
 }
@@ -242,25 +238,10 @@ async fn check_browser_socket(report: &mut Report, socket: &BrowserSocket) {
         Err(error) => report.error(format!("{label}: list_tabs failed: {error}")),
     }
 
-    // Use lightweight windows for Orion to avoid the slow populate:true path
-    let is_orion = socket.browser.eq_ignore_ascii_case("orion");
-    let (method, detail) = if is_orion {
-        (LIST_WINDOWS_LIGHTWEIGHT_METHOD, " (lightweight)")
-    } else {
-        (LIST_WINDOWS_METHOD, "")
-    };
-    let unsupported_label = if is_orion {
-        "list_windows_lightweight"
-    } else {
-        "list_windows"
-    };
-
-    match window_check_count::<Value>(socket, method).await {
-        Ok(count) => report.ok(format!(
-            "{label}: list_windows returned {count} window(s){detail}"
-        )),
+    match window_check_count(socket).await {
+        Ok(count) => report.ok(format!("{label}: list_windows returned {count} window(s)")),
         Err(error) if error.contains("unknown method") => report.error(format!(
-            "{label}: {unsupported_label} is unsupported; update or reload the rustab browser extension"
+            "{label}: list_windows is unsupported; update or reload the rustab browser extension"
         )),
         Err(error) => report.error(format!("{label}: list_windows failed: {error}")),
     }

@@ -207,12 +207,16 @@ async fn resolve_target_window_id(
     to_tab: Option<&str>,
 ) -> Result<u64, String> {
     match (to_window, to_tab) {
-        (Some(window_arg), _) => {
-            let (target_socket, window_id) = resolve_window_socket(sockets, window_arg)?;
-            require_same_browser_instance(source_socket, target_socket)
-                .map_err(|e| e.to_string())?;
-            Ok(window_id)
-        }
+        (Some(window_arg), _) => match parse_window_arg(window_arg)? {
+            WindowArg::Raw(window_id) => Ok(window_id),
+            WindowArg::Scoped(window_ref) => {
+                let target_socket = resolve_socket_for_window_ref(sockets, window_ref)
+                    .map_err(|e| e.to_string())?;
+                require_same_browser_instance(source_socket, target_socket)
+                    .map_err(|e| e.to_string())?;
+                Ok(window_ref.window_id)
+            }
+        },
         (_, Some(tab_id)) => {
             let target_tab_ref = parse_tab_id(tab_id).ok_or_else(|| {
                 format!("Invalid tab ID format: {tab_id} (expected prefix.pid.id, e.g. c.4242.123)")
@@ -445,4 +449,31 @@ fn cmd_clients() -> i32 {
     }
 
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn socket(browser: &str, pid: u32) -> BrowserSocket {
+        BrowserSocket {
+            browser: browser.to_string(),
+            pid,
+            path: PathBuf::from(format!("/tmp/{browser}-{pid}.sock")),
+        }
+    }
+
+    #[tokio::test]
+    async fn raw_move_target_uses_source_socket_without_global_disambiguation() {
+        let source_socket = socket("brave", 7);
+        let other_socket = socket("firefox", 9);
+        let sockets = vec![source_socket.clone(), other_socket];
+
+        let window_id = resolve_target_window_id(&sockets, &source_socket, Some("7"), None)
+            .await
+            .expect("raw window target should resolve within the source socket");
+
+        assert_eq!(window_id, 7);
+    }
 }

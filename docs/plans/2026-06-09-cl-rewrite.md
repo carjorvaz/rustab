@@ -11,9 +11,9 @@
 
 The browser extension (JS) is unchanged — it speaks native messaging protocol, which we reimplement in CL.
 
-**Tech Stack:** SBCL, ASDF, FiveAM, com.inuoe.jzon, usocket, bordeaux-threads, clingon, cxml (plist XML parsing), Nix packaging via `sb-ext:save-lisp-and-die`.
+**Tech Stack:** SBCL, ASDF, FiveAM, com.inuoe.jzon, flexi-streams, usocket, bordeaux-threads, clingon, cxml (plist XML parsing), Nix packaging via `sb-ext:save-lisp-and-die`.
 
-**Source repo:** `/Users/cjv/Documents/rustab` (existing Rust repo; CL source goes in `src/` alongside `crates/`)
+**Source repo:** repository root (existing Rust repo; CL source goes in `src/` alongside `crates/`)
 
 ---
 
@@ -55,7 +55,7 @@ The browser extension (JS) is unchanged — it speaks native messaging protocol,
   :author "Carlos J. Vaz"
   :license "AGPL-3.0-or-later"
   :version "0.2.0"
-  :depends-on (#:alexandria #:com.inuoe.jzon #:usocket #:bordeaux-threads)
+  :depends-on (#:alexandria #:com.inuoe.jzon #:flexi-streams #:usocket #:bordeaux-threads)
   :serial t
   :components ((:module "protocol"
                 :components ((:file "package")
@@ -68,7 +68,7 @@ The browser extension (JS) is unchanged — it speaks native messaging protocol,
 (asdf:defsystem #:rustab/cli
   :description "CLI for browser tab management"
   :version "0.2.0"
-  :depends-on (#:rustab/protocol #:clingon)
+  :depends-on (#:rustab/protocol #:clingon #:cxml)
   :serial t
   :components ((:module "cli"
                 :components ((:file "package")
