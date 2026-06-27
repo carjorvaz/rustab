@@ -15,9 +15,8 @@ pub fn cmd_synced_list(format: &OutputFormat, browser_filter: Option<&str>, arch
 
     tabs.sort_by(|left, right| {
         right
-            .browser
-            .cmp(&left.browser)
-            .then_with(|| right.last_synced.cmp(&left.last_synced))
+            .last_synced
+            .cmp(&left.last_synced)
             .then_with(|| left.title.cmp(&right.title))
     });
 

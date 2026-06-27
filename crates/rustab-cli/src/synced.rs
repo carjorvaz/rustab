@@ -36,10 +36,7 @@ fn list_synced_tabs_from_home(
 ) -> Result<Vec<SyncedTab>, String> {
     match browser_filter {
         Some("orion") | None => {
-            let mut tabs = list_orion_synced_tabs(home, archived)?;
-            if let Some(filter) = browser_filter {
-                tabs.retain(|tab| tab.browser == filter);
-            }
+            let tabs = list_orion_synced_tabs(home, archived)?;
             Ok(tabs)
         }
         Some(other) => Err(format!(

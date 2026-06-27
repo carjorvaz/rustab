@@ -151,16 +151,6 @@ def render_updates_xml(extension_id: str, codebase_url: str, version: str) -> st
     )
 
 
-def render_extension_settings(update_url: str, installation_mode: str) -> dict:
-    return {
-        "installation_mode": installation_mode,
-        "update_url": update_url,
-        # Keep future updates pinned to the same hosted update URL instead of
-        # requiring the extension manifest itself to carry production policy.
-        "override_update_url": True,
-    }
-
-
 def package_extension(
     browser_binary: Path,
     browser_args: list[str],
@@ -232,7 +222,13 @@ def main() -> int:
     )
 
     extension_settings = {
-        args.extension_id: render_extension_settings(update_url, args.installation_mode)
+        args.extension_id: {
+            "installation_mode": args.installation_mode,
+            "update_url": update_url,
+            # Keep future updates pinned to the same hosted update URL instead of
+            # requiring the extension manifest itself to carry production policy.
+            "override_update_url": True,
+        }
     }
     (out_dir / "extension-settings.json").write_text(
         json.dumps({"ExtensionSettings": extension_settings}, indent=2) + "\n"

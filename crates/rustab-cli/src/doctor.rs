@@ -78,7 +78,10 @@ fn check_native_manifests(
         return;
     };
 
-    let current_mediator = current_mediator_path();
+    let current_mediator = std::env::current_exe()
+        .ok()
+        .map(|path| path.with_file_name("rustab-mediator"))
+        .filter(|path| path.is_file());
     let mut detected_browser_configs = 0;
 
     for browser in BROWSERS {
@@ -287,7 +290,10 @@ fn validate_manifest(
     match manifest_mediator.as_deref() {
         Some(path) if path.is_file() => {
             if let Some(current_mediator) = current_mediator {
-                match (canonicalize(path), canonicalize(current_mediator)) {
+                match (
+                    std::fs::canonicalize(path).ok(),
+                    std::fs::canonicalize(current_mediator).ok(),
+                ) {
                     (Some(manifest_mediator), Some(current_mediator))
                         if manifest_mediator != current_mediator =>
                     {
@@ -342,17 +348,6 @@ fn json_array_contains(value: &Value, key: &str, expected: &str) -> bool {
         .get(key)
         .and_then(Value::as_array)
         .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(expected)))
-}
-
-fn current_mediator_path() -> Option<PathBuf> {
-    std::env::current_exe()
-        .ok()
-        .map(|path| path.with_file_name("rustab-mediator"))
-        .filter(|path| path.is_file())
-}
-
-fn canonicalize(path: &Path) -> Option<PathBuf> {
-    std::fs::canonicalize(path).ok()
 }
 
 #[cfg(test)]

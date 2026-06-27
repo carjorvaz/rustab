@@ -46,12 +46,6 @@ check_versions() {
   python3 scripts/check_versions.py --source-only
 }
 
-check_signed_firefox_xpi() {
-  section "Checking signed Firefox XPI metadata"
-  require_command python3
-  python3 scripts/check_versions.py
-}
-
 check_extension_js() {
   section "Checking extension JavaScript syntax"
   require_command node
@@ -109,7 +103,9 @@ run_full() {
 
 run_release() {
   run_full
-  check_signed_firefox_xpi
+  section "Checking signed Firefox XPI metadata"
+  require_command python3
+  python3 scripts/check_versions.py
   print_release_version
 }
 

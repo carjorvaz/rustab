@@ -80,13 +80,6 @@
         ++ optionalToolsFor pkgs [
           "ast-grep"
         ];
-      appFor = pkgs: {
-        type = "app";
-        program = "${packageChromiumReleaseFor pkgs}/bin/package-chromium-release";
-        meta = {
-          description = "Package rustab's Chromium extension for managed distribution";
-        };
-      };
       version =
         let
           cargoVersion = cargoToml.workspace.package.version;
@@ -139,7 +132,13 @@
 
       apps = forAllSystems (
         _: pkgs: {
-          package-chromium-release = appFor pkgs;
+          package-chromium-release = {
+            type = "app";
+            program = "${packageChromiumReleaseFor pkgs}/bin/package-chromium-release";
+            meta = {
+              description = "Package rustab's Chromium extension for managed distribution";
+            };
+          };
           refresh-firefox-xpi = {
             type = "app";
             program = "${refreshFirefoxXpiFor pkgs}/bin/refresh-firefox-xpi";
