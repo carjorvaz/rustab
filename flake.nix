@@ -103,6 +103,9 @@
         "extensions/firefox/background.js"
         "extensions/orion/background.js"
       ];
+      extensionJavascriptTests = [
+        "extensions/shared/background_core.test.js"
+      ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
     in
     {
@@ -291,14 +294,17 @@
           chrome-extension = self.packages.${system}.chrome-extension;
           orion-extension = self.packages.${system}.orion-extension;
           firefox-extension = self.packages.${system}.firefox-extension;
-          extension-js-syntax =
-            pkgs.runCommand "rustab-extension-js-syntax"
+          extension-js =
+            pkgs.runCommand "rustab-extension-js"
               {
                 nativeBuildInputs = [ pkgs.nodejs ];
               }
               ''
                 for file in ${nixpkgs.lib.escapeShellArgs extensionJavascriptFiles}; do
                   node --check "${self}/$file"
+                done
+                for file in ${nixpkgs.lib.escapeShellArgs extensionJavascriptTests}; do
+                  node --test "${self}/$file"
                 done
                 touch $out
               '';

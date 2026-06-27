@@ -6,7 +6,7 @@ usage() {
 Usage: scripts/validate [fast|full|release]
 
 Modes:
-  fast     format check, source version sync, extension JS syntax, clippy, nextest
+  fast     format check, source version sync, extension JS syntax/behavior, clippy, nextest
   full     fast plus nix flake check
   release  full plus signed Firefox XPI sync and source-version printout for tag sanity
 EOF
@@ -47,7 +47,7 @@ check_versions() {
 }
 
 check_extension_js() {
-  section "Checking extension JavaScript syntax"
+  section "Checking extension JavaScript syntax and behavior"
   require_command node
   local js_files=(
     extensions/shared/background_core.js
@@ -59,6 +59,7 @@ check_extension_js() {
   for file in "${js_files[@]}"; do
     node --check "$file"
   done
+  node --test extensions/shared/background_core.test.js
 }
 
 check_clippy() {

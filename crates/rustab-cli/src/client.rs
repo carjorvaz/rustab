@@ -1,6 +1,6 @@
 use rustab_protocol::{
     browser_prefix, client_request_timeout_for, is_pid_alive, parse_socket_name, read_message,
-    socket_dir, validate_socket_dir, write_message, RpcRequest, RpcResponse, TabRef, WindowRef,
+    socket_dir, validate_socket_dir, write_message, RpcRequest, RpcResponse,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -31,8 +31,8 @@ pub fn discover_sockets(browser_filter: Option<&str>) -> Vec<BrowserSocket> {
     let mut sockets = entries
         .flatten()
         .filter_map(|entry| {
-            let name = entry.file_name().to_str()?.to_string();
-            let (browser, pid) = parse_socket_name(&name)?;
+            let name = entry.file_name();
+            let (browser, pid) = parse_socket_name(name.to_str()?)?;
 
             if !is_pid_alive(pid) {
                 return None;
@@ -130,20 +130,6 @@ pub fn resolve_socket<'a>(
     Ok(first_match)
 }
 
-pub fn resolve_socket_for_tab_ref<'a>(
-    sockets: &'a [BrowserSocket],
-    tab_ref: TabRef<'_>,
-) -> Result<&'a BrowserSocket, String> {
-    resolve_socket(sockets, tab_ref.prefix, tab_ref.mediator_pid)
-}
-
-pub fn resolve_socket_for_window_ref<'a>(
-    sockets: &'a [BrowserSocket],
-    window_ref: WindowRef<'_>,
-) -> Result<&'a BrowserSocket, String> {
-    resolve_socket(sockets, window_ref.prefix, window_ref.mediator_pid)
-}
-
 pub fn socket_for_raw_window_id(sockets: &[BrowserSocket]) -> Result<&BrowserSocket, String> {
     match sockets {
         [] => Err("No browsers connected".to_string()),
@@ -172,15 +158,13 @@ mod tests {
     fn resolves_legacy_tab_ids_when_only_one_socket_matches() {
         let sockets = vec![socket("brave", 101)];
 
-        let resolved = resolve_socket_for_tab_ref(
-            &sockets,
-            TabRef {
-                prefix: "b",
-                mediator_pid: None,
-                tab_id: 42,
-            },
-        )
-        .expect("single Brave socket should resolve");
+        let tab_ref = TabRef {
+            prefix: "b",
+            mediator_pid: None,
+            tab_id: 42,
+        };
+        let resolved = resolve_socket(&sockets, tab_ref.prefix, tab_ref.mediator_pid)
+            .expect("single Brave socket should resolve");
 
         assert_eq!(resolved.pid, 101);
     }
@@ -189,15 +173,13 @@ mod tests {
     fn rejects_legacy_tab_ids_when_multiple_sockets_match() {
         let sockets = vec![socket("brave", 101), socket("brave", 202)];
 
-        let err = resolve_socket_for_tab_ref(
-            &sockets,
-            TabRef {
-                prefix: "b",
-                mediator_pid: None,
-                tab_id: 42,
-            },
-        )
-        .expect_err("legacy IDs should be ambiguous across multiple Brave sockets");
+        let tab_ref = TabRef {
+            prefix: "b",
+            mediator_pid: None,
+            tab_id: 42,
+        };
+        let err = resolve_socket(&sockets, tab_ref.prefix, tab_ref.mediator_pid)
+            .expect_err("legacy IDs should be ambiguous across multiple Brave sockets");
 
         assert!(err.contains("Multiple browsers connected"));
     }
@@ -206,15 +188,13 @@ mod tests {
     fn resolves_full_tab_ids_to_the_matching_socket() {
         let sockets = vec![socket("brave", 101), socket("brave", 202)];
 
-        let resolved = resolve_socket_for_tab_ref(
-            &sockets,
-            TabRef {
-                prefix: "b",
-                mediator_pid: Some(202),
-                tab_id: 42,
-            },
-        )
-        .expect("full IDs should resolve to a specific socket");
+        let tab_ref = TabRef {
+            prefix: "b",
+            mediator_pid: Some(202),
+            tab_id: 42,
+        };
+        let resolved = resolve_socket(&sockets, tab_ref.prefix, tab_ref.mediator_pid)
+            .expect("full IDs should resolve to a specific socket");
 
         assert_eq!(resolved.pid, 202);
     }
@@ -223,15 +203,13 @@ mod tests {
     fn resolves_full_window_ids_to_the_matching_socket() {
         let sockets = vec![socket("brave", 101), socket("brave", 202)];
 
-        let resolved = resolve_socket_for_window_ref(
-            &sockets,
-            WindowRef {
-                prefix: "b",
-                mediator_pid: Some(202),
-                window_id: 42,
-            },
-        )
-        .expect("full window IDs should resolve to a specific socket");
+        let window_ref = WindowRef {
+            prefix: "b",
+            mediator_pid: Some(202),
+            window_id: 42,
+        };
+        let resolved = resolve_socket(&sockets, window_ref.prefix, window_ref.mediator_pid)
+            .expect("full window IDs should resolve to a specific socket");
 
         assert_eq!(resolved.pid, 202);
     }

@@ -1,9 +1,8 @@
 use crate::client::{discover_sockets, send_rpc, BrowserSocket};
-use crate::install::manifest_target_dirs;
+use crate::install::{manifest_extension_allowlist, manifest_target_dirs};
 use rustab_protocol::{
     browser_prefix, socket_dir, validate_socket_dir, BrowserManifestInfo, RpcRequest, TabInfo,
-    BROWSERS, CHROME_EXTENSION_ID, FIREFOX_EXTENSION_ID, LIST_TABS_METHOD, LIST_WINDOWS_METHOD,
-    NATIVE_HOST_NAME,
+    BROWSERS, CHROME_EXTENSION_ID, LIST_TABS_METHOD, LIST_WINDOWS_METHOD, NATIVE_HOST_NAME,
 };
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -319,21 +318,13 @@ fn validate_manifest(
         )),
     }
 
-    if browser.is_firefox {
-        if !json_array_contains(&value, "allowed_extensions", FIREFOX_EXTENSION_ID) {
-            errors.push(format!(
-                "{}: allowed_extensions does not include {FIREFOX_EXTENSION_ID}",
-                manifest_path.display()
-            ));
-        }
-    } else {
-        let allowed_origin = format!("chrome-extension://{chrome_extension_id}/");
-        if !json_array_contains(&value, "allowed_origins", &allowed_origin) {
-            errors.push(format!(
-                "{}: allowed_origins does not include {allowed_origin}",
-                manifest_path.display()
-            ));
-        }
+    let (allowlist_key, allowed_extension) =
+        manifest_extension_allowlist(browser, chrome_extension_id);
+    if !json_array_contains(&value, allowlist_key, &allowed_extension) {
+        errors.push(format!(
+            "{}: {allowlist_key} does not include {allowed_extension}",
+            manifest_path.display()
+        ));
     }
 
     if errors.is_empty() {
@@ -406,6 +397,40 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.contains(&format!("chrome-extension://{CHROME_EXTENSION_ID}/"))));
+
+        std::fs::remove_file(manifest_path).expect("remove manifest");
+    }
+
+    #[test]
+    fn validate_manifest_accepts_firefox_extension_allowlist() {
+        let browser = BROWSERS
+            .iter()
+            .find(|browser| browser.is_firefox)
+            .expect("firefox browser metadata");
+        let mediator = std::env::current_exe().expect("current test executable");
+        let manifest_path = std::env::temp_dir().join(format!(
+            "rustab-doctor-firefox-manifest-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after epoch")
+                .as_nanos()
+        ));
+
+        let (_, allowed_extension) = manifest_extension_allowlist(browser, CHROME_EXTENSION_ID);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string(&json!({
+                "name": NATIVE_HOST_NAME,
+                "path": mediator,
+                "type": "stdio",
+                "allowed_extensions": [allowed_extension]
+            }))
+            .expect("render manifest"),
+        )
+        .expect("write manifest");
+
+        assert!(validate_manifest(&manifest_path, browser, None, CHROME_EXTENSION_ID).is_ok());
 
         std::fs::remove_file(manifest_path).expect("remove manifest");
     }

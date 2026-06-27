@@ -10,8 +10,7 @@ mod synced_command;
 
 use crate::cli::{Cli, Command, OutputFormat, SyncedCommand};
 use crate::client::{
-    discover_sockets, resolve_socket, resolve_socket_for_tab_ref, resolve_socket_for_window_ref,
-    send_rpc, socket_for_raw_window_id, BrowserSocket,
+    discover_sockets, resolve_socket, send_rpc, socket_for_raw_window_id, BrowserSocket,
 };
 use crate::doctor::cmd_doctor;
 use crate::input::{
@@ -109,7 +108,12 @@ async fn cmd_list(format: &OutputFormat, browser_filter: Option<&str>) -> i32 {
                 return 1;
             }
         }
-        OutputFormat::Tsv => listing::print_tab_listings_tsv(&all_tabs),
+        OutputFormat::Tsv => {
+            if let Err(error) = listing::print_tab_listings_tsv(&all_tabs) {
+                eprintln!("failed to write TSV: {error}");
+                return 1;
+            }
+        }
     }
 
     0
@@ -136,7 +140,12 @@ async fn cmd_windows(format: &OutputFormat, browser_filter: Option<&str>) -> i32
                 return 1;
             }
         }
-        OutputFormat::Tsv => listing::print_window_listings_tsv(&all_windows),
+        OutputFormat::Tsv => {
+            if let Err(error) = listing::print_window_listings_tsv(&all_windows) {
+                eprintln!("failed to write TSV: {error}");
+                return 1;
+            }
+        }
     }
 
     0
@@ -213,8 +222,9 @@ async fn resolve_target_window_id(
         (Some(window_arg), _) => match parse_window_arg(window_arg)? {
             WindowArg::Raw(window_id) => Ok(window_id),
             WindowArg::Scoped(window_ref) => {
-                let target_socket = resolve_socket_for_window_ref(sockets, window_ref)
-                    .map_err(|e| e.to_string())?;
+                let target_socket =
+                    resolve_socket(sockets, window_ref.prefix, window_ref.mediator_pid)
+                        .map_err(|e| e.to_string())?;
                 require_same_browser_instance(source_socket, target_socket)
                     .map_err(|e| e.to_string())?;
                 Ok(window_ref.window_id)
@@ -225,7 +235,8 @@ async fn resolve_target_window_id(
                 format!("Invalid tab ID format: {tab_id} (expected prefix.pid.id, e.g. c.4242.123)")
             })?;
             let target_socket =
-                resolve_socket_for_tab_ref(sockets, target_tab_ref).map_err(|e| e.to_string())?;
+                resolve_socket(sockets, target_tab_ref.prefix, target_tab_ref.mediator_pid)
+                    .map_err(|e| e.to_string())?;
             require_same_browser_instance(source_socket, target_socket)
                 .map_err(|e| e.to_string())?;
             tab_window_id(target_socket, target_tab_ref.tab_id)
@@ -250,8 +261,10 @@ fn resolve_window_socket<'a>(
         WindowArg::Raw(window_id) => {
             socket_for_raw_window_id(sockets).map(|sock| (sock, window_id))
         }
-        WindowArg::Scoped(window_ref) => resolve_socket_for_window_ref(sockets, window_ref)
-            .map(|sock| (sock, window_ref.window_id)),
+        WindowArg::Scoped(window_ref) => {
+            resolve_socket(sockets, window_ref.prefix, window_ref.mediator_pid)
+                .map(|sock| (sock, window_ref.window_id))
+        }
     }
 }
 
@@ -282,11 +295,22 @@ async fn cmd_move(
     };
 
     let sockets = discover_sockets(None);
-    let mut source_socket = None;
+    let (first_tab_ref, remaining_tab_refs) = tab_refs
+        .split_first()
+        .expect("parse_tab_ids preserves non-empty input");
+    let source_socket =
+        match resolve_socket(&sockets, first_tab_ref.prefix, first_tab_ref.mediator_pid) {
+            Ok(sock) => sock,
+            Err(error) => {
+                eprintln!("{error}");
+                return 1;
+            }
+        };
     let mut raw_tab_ids = Vec::with_capacity(tab_refs.len());
+    raw_tab_ids.push(first_tab_ref.tab_id);
 
-    for tab_ref in &tab_refs {
-        let sock = match resolve_socket_for_tab_ref(&sockets, *tab_ref) {
+    for tab_ref in remaining_tab_refs {
+        let sock = match resolve_socket(&sockets, tab_ref.prefix, tab_ref.mediator_pid) {
             Ok(sock) => sock,
             Err(error) => {
                 eprintln!("{error}");
@@ -294,22 +318,13 @@ async fn cmd_move(
             }
         };
 
-        if let Some(existing_socket) = source_socket {
-            if let Err(error) = require_same_browser_instance(existing_socket, sock) {
-                eprintln!("{error}");
-                return 1;
-            }
-        } else {
-            source_socket = Some(sock);
+        if let Err(error) = require_same_browser_instance(source_socket, sock) {
+            eprintln!("{error}");
+            return 1;
         }
 
         raw_tab_ids.push(tab_ref.tab_id);
     }
-
-    let Some(source_socket) = source_socket else {
-        eprintln!("No tab IDs provided. Pass as arguments or pipe from `rustab list`.");
-        return 1;
-    };
 
     let target_window_id =
         match resolve_target_window_id(&sockets, source_socket, to_window, to_tab).await {
@@ -348,7 +363,7 @@ async fn cmd_activate(tab_id: &str) -> i32 {
     };
 
     let sockets = discover_sockets(None);
-    let sock = match resolve_socket_for_tab_ref(&sockets, tab_ref) {
+    let sock = match resolve_socket(&sockets, tab_ref.prefix, tab_ref.mediator_pid) {
         Ok(sock) => sock,
         Err(err) => {
             eprintln!("{err}");

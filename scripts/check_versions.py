@@ -41,6 +41,14 @@ def parse_args() -> argparse.Namespace:
         help="Print the canonical Rustab version after validation succeeds.",
     )
     parser.add_argument(
+        "--print-release-metadata",
+        action="store_true",
+        help=(
+            "Print release metadata as stable key=value lines after validation "
+            "succeeds."
+        ),
+    )
+    parser.add_argument(
         "--source-only",
         action="store_true",
         help=(
@@ -86,6 +94,18 @@ def firefox_addon_id(manifest: dict) -> str:
 
 def signed_firefox_xpi_path(firefox_manifest: dict) -> Path:
     return SIGNED_FIREFOX_XPI_DIR / f"{firefox_addon_id(firefox_manifest)}.xpi"
+
+
+def release_metadata(version: str, firefox_manifest: dict) -> dict[str, str]:
+    return {
+        "version": version,
+        "tag": f"v{version}",
+        "firefox_xpi_name": signed_firefox_xpi_path(firefox_manifest).name,
+    }
+
+
+def format_key_value_lines(metadata: dict[str, str]) -> str:
+    return "\n".join(f"{key}={value}" for key, value in metadata.items())
 
 
 def firefox_source_for_signed_payload(relative_name: str) -> tuple[Path, str]:
@@ -197,6 +217,10 @@ def main() -> int:
 
     if args.print_version:
         print(cargo_version)
+        return 0
+
+    if args.print_release_metadata:
+        print(format_key_value_lines(release_metadata(cargo_version, firefox_manifest)))
         return 0
 
     print(f"rustab version: {cargo_version}")

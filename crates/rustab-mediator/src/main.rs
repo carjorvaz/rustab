@@ -1,6 +1,6 @@
 use rustab_protocol::{
     browser_request_timeout_for, is_pid_alive, prepare_socket_dir, read_browser_message,
-    read_message, socket_path, write_message,
+    read_message, write_message,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -43,7 +43,7 @@ async fn main() {
 
     cleanup_stale_sockets(&sock_dir);
 
-    let sock_path = socket_path(&browser, pid);
+    let sock_path = sock_dir.join(format!("{browser}-{pid}.sock"));
     let _ = std::fs::remove_file(&sock_path);
 
     let listener = match UnixListener::bind(&sock_path) {
@@ -149,58 +149,52 @@ where
 }
 
 async fn handle_client(
-    stream: tokio::net::UnixStream,
+    mut stream: tokio::net::UnixStream,
     browser_tx: mpsc::Sender<Value>,
     pending: PendingResponses,
     request_timeout: std::time::Duration,
 ) {
-    let (mut reader, mut writer) = stream.into_split();
+    let mut msg = match read_message(&mut stream).await {
+        Ok(msg) => msg,
+        Err(_) => return, // client disconnected
+    };
 
-    loop {
-        let mut msg = match read_message(&mut reader).await {
-            Ok(msg) => msg,
-            Err(_) => break, // client disconnected
-        };
+    let Some(client_id) = request_id(&msg) else {
+        write_client_error(&mut stream, None, "missing request id").await;
+        return;
+    };
 
-        let Some(client_id) = request_id(&msg) else {
-            write_client_error(&mut writer, None, "missing request id").await;
-            continue;
-        };
+    // Assign a unique internal ID to prevent collisions across clients
+    let internal_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+    set_request_id(&mut msg, internal_id);
 
-        // Assign a unique internal ID to prevent collisions across clients
-        let internal_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-        set_request_id(&mut msg, internal_id);
+    // Register a oneshot channel for the response
+    let (tx, rx) = oneshot::channel();
+    {
+        pending.lock().await.insert(internal_id, tx);
+    }
 
-        // Register a oneshot channel for the response
-        let (tx, rx) = oneshot::channel();
-        {
-            pending.lock().await.insert(internal_id, tx);
+    // Forward request to browser extension
+    if browser_tx.send(msg).await.is_err() {
+        write_client_error(&mut stream, Some(client_id), "browser disconnected").await;
+        pending.lock().await.remove(&internal_id);
+        return;
+    }
+
+    // Wait for response with timeout
+    let response = tokio::time::timeout(request_timeout, rx).await;
+    match response {
+        Ok(Ok(mut val)) => {
+            // Restore the client's original ID
+            set_request_id(&mut val, client_id);
+            let _ = write_message(&mut stream, &val).await;
         }
-
-        // Forward request to browser extension
-        if browser_tx.send(msg).await.is_err() {
-            write_client_error(&mut writer, Some(client_id), "browser disconnected").await;
+        Ok(Err(_)) => {
+            write_client_error(&mut stream, Some(client_id), "response channel dropped").await;
+        }
+        Err(_) => {
             pending.lock().await.remove(&internal_id);
-            break;
-        }
-
-        // Wait for response with timeout
-        let response = tokio::time::timeout(request_timeout, rx).await;
-        match response {
-            Ok(Ok(mut val)) => {
-                // Restore the client's original ID
-                set_request_id(&mut val, client_id);
-                if write_message(&mut writer, &val).await.is_err() {
-                    break;
-                }
-            }
-            Ok(Err(_)) => {
-                write_client_error(&mut writer, Some(client_id), "response channel dropped").await;
-            }
-            Err(_) => {
-                pending.lock().await.remove(&internal_id);
-                write_client_error(&mut writer, Some(client_id), "request timed out").await;
-            }
+            write_client_error(&mut stream, Some(client_id), "request timed out").await;
         }
     }
 }
@@ -333,7 +327,113 @@ fn cleanup_stale_sockets(dir: &std::path::Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::detect_browser_from_launch_context;
+    use super::{detect_browser_from_launch_context, handle_client, PendingResponses};
+    use rustab_protocol::{read_message, write_message};
+    use serde_json::json;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::net::UnixStream;
+    use tokio::sync::{mpsc, Mutex};
+
+    fn pending_responses() -> PendingResponses {
+        Arc::new(Mutex::new(HashMap::new()))
+    }
+
+    #[tokio::test]
+    async fn client_request_is_forwarded_with_internal_id_and_response_restores_client_id() {
+        let (mut client, server) = UnixStream::pair().expect("unix stream pair");
+        let (browser_tx, mut browser_rx) = mpsc::channel(1);
+        let pending = pending_responses();
+        let task = tokio::spawn(handle_client(
+            server,
+            browser_tx,
+            pending.clone(),
+            Duration::from_secs(1),
+        ));
+
+        write_message(
+            &mut client,
+            &json!({"id": 42, "method": "list_tabs", "params": {"active": true}}),
+        )
+        .await
+        .expect("client request written");
+
+        let forwarded = browser_rx.recv().await.expect("request forwarded");
+        let internal_id = forwarded["id"].as_u64().expect("internal id");
+        assert_ne!(internal_id, 42);
+        assert_eq!(forwarded["method"], "list_tabs");
+        assert_eq!(forwarded.get("params"), Some(&json!({"active": true})));
+
+        pending
+            .lock()
+            .await
+            .remove(&internal_id)
+            .expect("pending response registered")
+            .send(json!({"id": internal_id, "result": {"ok": true}}))
+            .expect("client still waiting");
+
+        let response = read_message(&mut client)
+            .await
+            .expect("client response received");
+        assert_eq!(response, json!({"id": 42, "result": {"ok": true}}));
+        task.await.expect("client handler finished");
+    }
+
+    #[tokio::test]
+    async fn request_missing_id_gets_error_without_forwarding() {
+        let (mut client, server) = UnixStream::pair().expect("unix stream pair");
+        let (browser_tx, mut browser_rx) = mpsc::channel(1);
+        let pending = pending_responses();
+        let task = tokio::spawn(handle_client(
+            server,
+            browser_tx,
+            pending,
+            Duration::from_secs(1),
+        ));
+
+        write_message(&mut client, &json!({"method": "list_tabs"}))
+            .await
+            .expect("client request written");
+
+        let response = read_message(&mut client)
+            .await
+            .expect("client error response received");
+        assert_eq!(response, json!({"error": "missing request id"}));
+        assert!(matches!(
+            browser_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected)
+        ));
+        task.await.expect("client handler finished");
+    }
+
+    #[tokio::test]
+    async fn timed_out_request_removes_pending_response_entry() {
+        let (mut client, server) = UnixStream::pair().expect("unix stream pair");
+        let (browser_tx, mut browser_rx) = mpsc::channel(1);
+        let pending = pending_responses();
+        let task = tokio::spawn(handle_client(
+            server,
+            browser_tx,
+            pending.clone(),
+            Duration::from_millis(50),
+        ));
+
+        write_message(&mut client, &json!({"id": 7, "method": "list_tabs"}))
+            .await
+            .expect("client request written");
+
+        let forwarded = browser_rx.recv().await.expect("request forwarded");
+        let internal_id = forwarded["id"].as_u64().expect("internal id");
+        assert!(pending.lock().await.contains_key(&internal_id));
+
+        let response = read_message(&mut client)
+            .await
+            .expect("client timeout response received");
+        assert_eq!(response, json!({"id": 7, "error": "request timed out"}));
+        task.await.expect("client handler finished");
+        assert!(!pending.lock().await.contains_key(&internal_id));
+    }
 
     #[test]
     fn detects_firefox_from_parent_process_when_args_omit_mozilla_path() {

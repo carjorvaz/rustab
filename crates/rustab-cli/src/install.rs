@@ -141,10 +141,40 @@ fn build_manifest(
     mediator_path: &Path,
     chrome_extension_id: &str,
 ) -> Result<String, String> {
+    let mediator_path = manifest_path_string(mediator_path)?;
+    let (allowlist_key, allowed_extension) =
+        manifest_extension_allowlist(browser, chrome_extension_id);
+    let mut manifest = json!({
+        "name": NATIVE_HOST_NAME,
+        "description": "rustab native messaging host",
+        "path": mediator_path,
+        "type": "stdio",
+    });
+    manifest[allowlist_key] = json!([allowed_extension]);
+
+    serde_json::to_string_pretty(&manifest).map_err(|e| {
+        format!(
+            "failed to render {} manifest: {e}",
+            if browser.is_firefox {
+                "Firefox"
+            } else {
+                "Chromium"
+            }
+        )
+    })
+}
+
+pub(crate) fn manifest_extension_allowlist(
+    browser: &BrowserManifestInfo,
+    chrome_extension_id: &str,
+) -> (&'static str, String) {
     if browser.is_firefox {
-        build_firefox_manifest(mediator_path)
+        ("allowed_extensions", FIREFOX_EXTENSION_ID.to_string())
     } else {
-        build_chrome_manifest(mediator_path, chrome_extension_id)
+        (
+            "allowed_origins",
+            format!("chrome-extension://{chrome_extension_id}/"),
+        )
     }
 }
 
@@ -167,38 +197,70 @@ pub(crate) fn manifest_target_dirs(home: &Path, browser: &BrowserManifestInfo) -
     dirs
 }
 
-fn build_chrome_manifest(mediator_path: &Path, extension_id: &str) -> Result<String, String> {
-    let mediator_path = manifest_path_string(mediator_path)?;
-    serde_json::to_string_pretty(&json!({
-        "name": NATIVE_HOST_NAME,
-        "description": "rustab native messaging host",
-        "path": mediator_path,
-        "type": "stdio",
-        "allowed_origins": [format!("chrome-extension://{extension_id}/")]
-    }))
-    .map_err(|e| format!("failed to render Chromium manifest: {e}"))
-}
-
-fn build_firefox_manifest(mediator_path: &Path) -> Result<String, String> {
-    let mediator_path = manifest_path_string(mediator_path)?;
-    serde_json::to_string_pretty(&json!({
-        "name": NATIVE_HOST_NAME,
-        "description": "rustab native messaging host",
-        "path": mediator_path,
-        "type": "stdio",
-        "allowed_extensions": [FIREFOX_EXTENSION_ID]
-    }))
-    .map_err(|e| format!("failed to render Firefox manifest: {e}"))
-}
-
 fn manifest_path_string(path: &Path) -> Result<&str, String> {
     path.to_str()
         .ok_or_else(|| format!("manifest path is not valid UTF-8: {}", path.display()))
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chromium_manifest_uses_custom_extension_origin() {
+        let chromium = BROWSERS
+            .iter()
+            .find(|browser| !browser.is_firefox)
+            .expect("chromium browser metadata");
+        let manifest = serde_json::from_str::<serde_json::Value>(
+            &build_manifest(
+                chromium,
+                Path::new("/usr/local/bin/rustab-mediator"),
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )
+            .expect("build manifest"),
+        )
+        .expect("parse manifest");
+
+        assert_eq!(
+            manifest,
+            json!({
+                "name": NATIVE_HOST_NAME,
+                "description": "rustab native messaging host",
+                "path": "/usr/local/bin/rustab-mediator",
+                "type": "stdio",
+                "allowed_origins": ["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]
+            })
+        );
+    }
+
+    #[test]
+    fn firefox_manifest_uses_firefox_extension_allowlist() {
+        let firefox = BROWSERS
+            .iter()
+            .find(|browser| browser.is_firefox)
+            .expect("firefox browser metadata");
+        let manifest = serde_json::from_str::<serde_json::Value>(
+            &build_manifest(
+                firefox,
+                Path::new("/usr/local/bin/rustab-mediator"),
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )
+            .expect("build manifest"),
+        )
+        .expect("parse manifest");
+
+        assert_eq!(
+            manifest,
+            json!({
+                "name": NATIVE_HOST_NAME,
+                "description": "rustab native messaging host",
+                "path": "/usr/local/bin/rustab-mediator",
+                "type": "stdio",
+                "allowed_extensions": [FIREFOX_EXTENSION_ID]
+            })
+        );
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

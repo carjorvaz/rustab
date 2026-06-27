@@ -98,7 +98,7 @@ pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut R) -> io::Result<se
 /// contain non-ASCII characters, the declared length ends in the middle of a
 /// JSON string. In that one narrow case, keep reading bytes until the JSON
 /// payload becomes complete.
-pub async fn read_message_lenient<R: AsyncRead + Unpin>(
+async fn read_message_lenient<R: AsyncRead + Unpin>(
     reader: &mut R,
 ) -> io::Result<serde_json::Value> {
     read_message_with_recovery(reader, true).await
@@ -386,11 +386,6 @@ fn trusted_socket_dir_metadata(dir: &Path) -> io::Result<std::fs::Metadata> {
     }
 
     Ok(metadata)
-}
-
-/// Socket path for a given browser and PID: `/tmp/rustab-{user}/{browser}-{pid}.sock`
-pub fn socket_path(browser: &str, pid: u32) -> PathBuf {
-    socket_dir().join(format!("{browser}-{pid}.sock"))
 }
 
 /// Parse a socket filename into (browser, pid).

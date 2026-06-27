@@ -16,51 +16,17 @@ nix develop -c ./scripts/validate fast
 
 ## Modes
 
-### `fast`
+`scripts/validate` is the source of truth for the exact command sequence. The modes are named by intent:
 
-Normal pre-commit/source gate:
+| Mode | Command | Use it for | Primary failure class |
+| --- | --- | --- | --- |
+| `fast` | `./scripts/validate fast` | Normal source edits before commit or review. | Formatting, version metadata, JavaScript syntax/behavior, Rust lint/test failures. |
+| `full` | `./scripts/validate full` | Release-sensitive local checks and packaging changes. | Everything from `fast`, plus Nix package/app/check and staging failures. |
+| `release` | `./scripts/validate release` | Pre-tag or post-signing release sanity. | Everything from `full`, plus signed Firefox XPI/source mismatch or release-version mismatch. |
 
-```sh
-./scripts/validate fast
-```
+`fast` is secret-free and does not require refreshing the checked-in signed Firefox XPI. `full` exercises the Nix surface for the current system. `release` assumes the Firefox XPI has already been refreshed/signed and validates that release payload against source metadata.
 
-Runs:
-
-1. `treefmt --fail-on-change`
-2. `python3 scripts/check_versions.py --source-only`
-3. `node --check` for all extension JavaScript entrypoints/shared code
-4. `cargo clippy --workspace --all-targets -- -D warnings`
-5. `cargo nextest run --workspace`
-
-Use this for ordinary Rust, script, docs, manifest, and extension-source edits. It deliberately does not require the checked-in signed Firefox XPI to be refreshed; that belongs to the release path.
-
-Extension source validation checks the single authored browser core at `extensions/shared/background_core.js` plus the per-browser wrappers that load a staged `background_core.js` beside each manifest.
-
-### `full`
-
-Release-sensitive local gate:
-
-```sh
-./scripts/validate full
-```
-
-Runs `fast`, then:
-
-```sh
-nix flake check --print-build-logs
-```
-
-This verifies Nix packages/apps/checks for the current system, including browser package/staging paths that materialize `background_core.js` beside each browser manifest. It may expose network/cache/vendor staging issues that are separate from source correctness; keep those failures distinct in reports.
-
-### `release`
-
-Pre-tag sanity gate:
-
-```sh
-./scripts/validate release
-```
-
-Runs `full`, then validates the checked-in signed Firefox XPI against the Firefox extension source and prints the source version from `scripts/check_versions.py --source-only --print-version`. Refresh/sign the Firefox XPI before this mode; before pushing a tag, manually verify the intended annotated Git tag matches this version.
+When reporting failures, keep source failures, Nix packaging/environment failures, and signing/release-payload failures distinct.
 
 ## Command Menu
 
@@ -78,13 +44,13 @@ just test
 
 ## CI
 
-`.github/workflows/ci.yml` should call the same validation script instead of duplicating command lists:
+Normal CI should call the same validation script instead of duplicating command lists:
 
 ```sh
 nix develop -c ./scripts/validate full
 ```
 
-Release automation runs source validation before signing, then runs `nix develop -c ./scripts/validate release` after the signed Firefox XPI has been refreshed because that mode intentionally validates the release payload.
+Release automation derives tag and asset metadata with `scripts/check_versions.py --source-only --print-release-metadata`, runs `scripts/validate fast` before signing, refreshes/signs the Firefox XPI, then runs `scripts/validate release` because that mode intentionally validates the signed release payload.
 
 ## Formatting
 
@@ -126,4 +92,4 @@ git log --oneline --decorate -5
 
 - `nix flake check` can fail before compiling Rust if Nix cannot fetch/vendor crates from the network/cache. If `fast` passed, report that as packaging/environment failure, not as source-test failure.
 - New files must be visible to the flake source snapshot. With Git alone this usually means staging/tracking them; with colocated Jujutsu this is calmer, but still verify flake/package checks before release-sensitive claims.
-- Browser signing and store submission require secrets and should not be attempted in normal validation.
+- Browser signing and store submission require secrets and should not be attempted in normal validation. The public boundary and current secret names are documented in `docs/PUBLIC_BOUNDARY.md`.

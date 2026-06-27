@@ -9,26 +9,36 @@ Rustab is a public repository. Treat every committed file, CI log, issue, releas
 - Raw browser profiles, cookies, account state, local sync databases, or browsing history exports.
 - User-specific native-messaging manifests containing private home-directory layouts when they are not example fixtures.
 - CI logs, command transcripts, or debug dumps that include credentials, tokens, full private paths that matter operationally, or raw browser/account data.
-- Generated release bundles unless the repo intentionally tracks that artifact class. Today the checked-in signed Firefox XPI is intentional at the manifest-derived `extensions/firefox-signed/<gecko-id>.xpi` path; Chromium CRX/update-feed bundles are release outputs, not normal source commits.
+- Generated release bundles unless they match an explicit exception below.
+
+## Generated Artifact Exceptions
+
+The only generated release artifact intentionally tracked in source is the AMO-signed Firefox XPI at:
+
+```text
+extensions/firefox-signed/<gecko-id>.xpi
+```
+
+`<gecko-id>` comes from the Firefox manifest. Chromium CRX/update-feed bundles are release outputs, not normal source commits.
 
 ## Allowed Source Artifacts
 
 - Rust crates and tests.
 - Browser extension source manifests, background scripts, icons, and shared code.
-- The intentionally checked-in AMO-signed Firefox XPI at `extensions/firefox-signed/<gecko-id>.xpi`, where `<gecko-id>` comes from the Firefox manifest.
+- The generated artifact exception defined above.
 - Secret-free scripts and docs, including staging helpers that materialize extension payloads from checked-in source files.
 - Nix package/app/check definitions.
 - Example snippets using placeholder domains, keys, IDs, and paths.
 
 ## Signing and Release Secrets
 
-Release signing belongs in private secret stores or GitHub Actions secrets:
+Release signing belongs in private secret stores or GitHub Actions secrets. Current repository secret names:
 
-- `CHROMIUM_EXTENSION_KEY_PEM`
-- `WEB_EXT_API_KEY`
-- `WEB_EXT_API_SECRET`
+- `CHROMIUM_EXTENSION_KEY_PEM` — private key for managed Chromium CRX signing.
+- `WEB_EXT_API_KEY` — AMO unlisted signing API key.
+- `WEB_EXT_API_SECRET` — AMO unlisted signing API secret.
 
-When testing release helpers locally, use private paths outside the repository and avoid pasting command output that echoes secret material.
+When testing release helpers locally, use private paths outside the repository and avoid pasting command output that echoes secret material. Other docs should link here instead of repeating generated-artifact exceptions or signing-secret lists.
 
 ## Debugging Native Messaging
 

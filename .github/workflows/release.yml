@@ -33,12 +33,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="$(python3 scripts/check_versions.py --source-only --print-version)"
+          metadata="$(python3 scripts/check_versions.py --source-only --print-release-metadata)"
+          version=""
+          tag=""
+          firefox_xpi_name=""
+          while IFS='=' read -r key value; do
+            case "$key" in
+              version) version="$value" ;;
+              tag) tag="$value" ;;
+              firefox_xpi_name) firefox_xpi_name="$value" ;;
+            esac
+          done <<< "$metadata"
 
-          tag="${GITHUB_REF_NAME}"
-          tag_version="${tag#v}"
-          if [ "$tag_version" != "$version" ]; then
-            echo "tag ${tag} does not match repository version ${version}" >&2
+          if [ -z "$version" ] || [ -z "$tag" ] || [ -z "$firefox_xpi_name" ]; then
+            echo "release metadata helper did not print version, tag, and firefox_xpi_name" >&2
+            exit 1
+          fi
+
+          if [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match repository tag ${tag}" >&2
             exit 1
           fi
 
@@ -53,19 +66,11 @@ jobs:
 
           pages_base_url="${PAGES_BASE_URL_OVERRIDE:-$default_pages_base_url}"
           crx_name="rustab-${version}.crx"
-          firefox_xpi_name="$(python3 - <<'PY'
-          import json
-          from pathlib import Path
-          manifest = json.loads(Path("extensions/firefox/manifest.json").read_text())
-          print(f'{manifest["browser_specific_settings"]["gecko"]["id"]}.xpi')
-          PY
-          )"
           release_asset_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${tag}/${crx_name}"
 
           {
-            echo "version=${version}"
+            printf '%s\n' "$metadata"
             echo "crx_name=${crx_name}"
-            echo "firefox_xpi_name=${firefox_xpi_name}"
             echo "pages_base_url=${pages_base_url}"
             echo "release_asset_url=${release_asset_url}"
           } >> "$GITHUB_OUTPUT"

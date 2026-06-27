@@ -1,5 +1,5 @@
 use crate::client::{send_rpc, BrowserSocket};
-use crate::output::{write_tsv_row, TsvField};
+use crate::output::write_tsv_row;
 use rustab_protocol::{
     browser_prefix, format_tab_id, format_window_id, RpcRequest, TabInfo, WindowInfo,
     LIST_TABS_METHOD, LIST_WINDOWS_METHOD,
@@ -214,7 +214,7 @@ pub(crate) fn window_listings_json(windows: &[WindowListing]) -> Vec<Value> {
     windows.iter().map(WindowListing::to_json).collect()
 }
 
-pub(crate) fn print_tab_listings_tsv(tabs: &[TabListing]) {
+pub(crate) fn print_tab_listings_tsv(tabs: &[TabListing]) -> io::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
 
@@ -222,17 +222,13 @@ pub(crate) fn print_tab_listings_tsv(tabs: &[TabListing]) {
         let display_id = tab.display_id();
         write_tsv_row(
             &mut output,
-            [
-                TsvField::id(display_id.as_str()),
-                TsvField::text(tab.title.as_str()),
-                TsvField::text(tab.url.as_str()),
-            ],
-        )
-        .expect("failed to write TSV row");
+            [display_id.as_str(), tab.title.as_str(), tab.url.as_str()],
+        )?;
     }
+    Ok(())
 }
 
-pub(crate) fn print_window_listings_tsv(windows: &[WindowListing]) {
+pub(crate) fn print_window_listings_tsv(windows: &[WindowListing]) -> io::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
 
@@ -243,15 +239,15 @@ pub(crate) fn print_window_listings_tsv(windows: &[WindowListing]) {
         write_tsv_row(
             &mut output,
             [
-                TsvField::id(display_id.as_str()),
-                TsvField::text(tab_count.as_str()),
-                TsvField::text(focused.as_str()),
-                TsvField::text(window.active_tab_title.as_str()),
-                TsvField::text(window.active_tab_url.as_str()),
+                display_id.as_str(),
+                tab_count.as_str(),
+                focused.as_str(),
+                window.active_tab_title.as_str(),
+                window.active_tab_url.as_str(),
             ],
-        )
-        .expect("failed to write TSV row");
+        )?;
     }
+    Ok(())
 }
 
 #[cfg(test)]

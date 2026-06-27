@@ -1,5 +1,5 @@
 use crate::cli::OutputFormat;
-use crate::output::{print_json, write_tsv_row, TsvField};
+use crate::output::{print_json, write_tsv_row};
 use crate::synced::{self, SyncedTab};
 use serde_json::{json, Value};
 use std::io;
@@ -38,12 +38,12 @@ pub fn cmd_synced_list(format: &OutputFormat, browser_filter: Option<&str>, arch
                 if let Err(error) = write_tsv_row(
                     &mut output,
                     [
-                        TsvField::id(tab.id.as_str()),
-                        TsvField::text(tab.source.as_str()),
-                        TsvField::text(device_id),
-                        TsvField::text(last_synced),
-                        TsvField::text(tab.title.as_str()),
-                        TsvField::text(tab.url.as_str()),
+                        tab.id.as_str(),
+                        tab.source.as_str(),
+                        device_id,
+                        last_synced,
+                        tab.title.as_str(),
+                        tab.url.as_str(),
                     ],
                 ) {
                     eprintln!("failed to write TSV: {error}");

@@ -6,12 +6,20 @@
 
   function createRustabBackground(options) {
     const api = options.api;
+    if (!api) {
+      throw new Error("rustab: browser extension API is unavailable");
+    }
+
     const nativeHost = options.nativeHost || "rustab_mediator";
     const reconnectDelayMs = options.reconnectDelayMs || 2000;
-    const keepalive = options.keepalive || null;
+    const keepalive = Boolean(options.keepalive);
+    const keepaliveAlarm = {
+      name: "rustab-keepalive",
+      periodInMinutes: 0.4,
+    };
 
     let port = null;
-
+    let reconnectTimer = null;
     function connect() {
       if (port) return;
 
@@ -36,7 +44,19 @@
     }
 
     function scheduleReconnect() {
-      setTimeout(connect, reconnectDelayMs);
+      if (reconnectTimer !== null) return;
+
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, reconnectDelayMs);
+    }
+
+    function clearReconnect() {
+      if (reconnectTimer === null) return;
+
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
     }
 
     function handleMessage(msg) {
@@ -207,12 +227,13 @@
     }
 
     if (keepalive && api.alarms) {
-      api.alarms.create(keepalive.name, {
-        periodInMinutes: keepalive.periodInMinutes,
+      api.alarms.create(keepaliveAlarm.name, {
+        periodInMinutes: keepaliveAlarm.periodInMinutes,
       });
 
       api.alarms.onAlarm.addListener((alarm) => {
-        if (alarm.name === keepalive.name && !port) {
+        if (alarm.name === keepaliveAlarm.name && !port) {
+          clearReconnect();
           connect();
         }
       });
@@ -222,6 +243,10 @@
     api.runtime.onStartup?.addListener(() => connect());
 
     connect();
+    return {
+      connect,
+      state: () => ({ connected: Boolean(port), reconnectPending: reconnectTimer !== null }),
+    };
   }
 
   global.createRustabBackground = createRustabBackground;

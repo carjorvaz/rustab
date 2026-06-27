@@ -27,6 +27,7 @@ js-check:
     node --check extensions/chrome/background.js
     node --check extensions/firefox/background.js
     node --check extensions/orion/background.js
+    node --test extensions/shared/background_core.test.js
 
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
+import base64
+import hashlib
 import json
 import shutil
 import subprocess
@@ -14,7 +16,7 @@ from stage_extension import stage_extension
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXTENSION_DIR = REPO_ROOT / "extensions" / "chrome"
-DEFAULT_EXTENSION_ID = "nddbmnpippfilnjoebpcnfbpebnllbgo"
+DEFAULT_EXTENSION_ID_SOURCE = EXTENSION_DIR / "manifest.json"
 
 MAC_BROWSER_CANDIDATES = [
     "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
@@ -85,8 +87,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--extension-id",
-        default=DEFAULT_EXTENSION_ID,
-        help="Chromium extension ID. Defaults to rustab's stable ID.",
+        default=derive_extension_id(DEFAULT_EXTENSION_ID_SOURCE),
+        help=(
+            "Chromium extension ID. Defaults to the ID derived from "
+            "extensions/chrome/manifest.json's key."
+        ),
     )
     parser.add_argument(
         "--installation-mode",
@@ -127,6 +132,12 @@ def read_manifest(path: Path) -> dict:
 
 def write_manifest(path: Path, manifest: dict) -> None:
     path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+def derive_extension_id(manifest_path: Path) -> str:
+    key = read_manifest(manifest_path)["key"]
+    digest = hashlib.sha256(base64.b64decode(key)).digest()
+    return "".join(chr(ord("a") + int(nibble, 16)) for nibble in digest[:16].hex())
 
 
 def render_updates_xml(extension_id: str, codebase_url: str, version: str) -> str:
@@ -189,11 +200,7 @@ def main() -> int:
     out_dir = args.out_dir.expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest = read_manifest(EXTENSION_DIR / "manifest.json")
-    version = manifest["version"]
-    crx_filename = f"rustab-{version}.crx"
     update_url = f"{base_url}/updates.xml"
-    codebase_url = args.codebase_url or f"{base_url}/{crx_filename}"
 
     with tempfile.TemporaryDirectory(
         prefix="rustab-chromium-release-"
@@ -206,6 +213,10 @@ def main() -> int:
         staged_manifest = read_manifest(staged_manifest_path)
         staged_manifest["update_url"] = update_url
         write_manifest(staged_manifest_path, staged_manifest)
+
+        version = staged_manifest["version"]
+        crx_filename = f"rustab-{version}.crx"
+        codebase_url = args.codebase_url or f"{base_url}/{crx_filename}"
 
         crx_path = package_extension(
             browser_binary,
