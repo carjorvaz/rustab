@@ -8,7 +8,7 @@ Most rustab changes should not need checked-in plans. Use a plan only when the w
 - release process redesigns;
 - browser support changes with platform-specific install behavior;
 - large harness/tooling migrations that affect CI, Nix, scripts, and docs;
-- multi-session work that should be resumable without chat history.
+- multi-session work only when it fits one of the cross-boundary categories above and must be resumable without chat history.
 
 ## Do Not Check In Plans For
 
@@ -42,6 +42,6 @@ A useful plan includes:
 - implementation tasks in reviewable chunks;
 - validation commands and expected artifacts;
 - public-boundary considerations;
-- progress log with dates only when the log remains useful after completion.
+- temporary progress log while active, pruned before completion after durable decisions move into the relevant sections.
 
-Keep plans concise and executable. If a plan turns into a diary, extract durable decisions into docs/tests/scripts and prune the rest.
+Keep plans concise and executable. If a plan turns into a diary, extract durable decisions into docs/tests/scripts and prune progress notes before moving or completing it.

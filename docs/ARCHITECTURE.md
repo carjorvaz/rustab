@@ -45,19 +45,21 @@ Preserve scoped IDs in user-facing examples and tests unless a test is explicitl
 - `crates/rustab-cli/` — command-line parsing, socket discovery, tab/window operations, install and doctor commands.
 - `crates/rustab-mediator/` — native-messaging bridge between browser stdio and local Unix sockets.
 - `crates/rustab-protocol/` — shared request/response types for CLI, mediator, and browser extension messages.
-- `extensions/shared/` — browser-independent extension behavior.
-- `extensions/chrome/` — Chromium-family Manifest V3 manifest/background entrypoint and assets.
-- `extensions/orion/` — Orion Manifest V2 persistent-background entrypoint and assets.
-- `extensions/firefox/` — Firefox-family manifest/background entrypoint and assets.
+- `extensions/shared/background_core.js` — single authored browser-independent extension core.
+- `extensions/chrome/` — Chromium-family Manifest V3 manifest/background wrapper and assets.
+- `extensions/orion/` — Orion Manifest V2 persistent-background wrapper and assets.
+- `extensions/firefox/` — Firefox-family manifest/background wrapper and assets.
 - `extensions/firefox-signed/` — checked-in AMO-signed XPI consumed by the Nix package and release workflow.
 - `scripts/` — validation and release-support scripts.
 - `.github/workflows/` — GitHub Actions CI and release automation.
+
+Browser packages and release staging materialize `background_core.js` beside each browser manifest because the wrappers/manifests load that local filename; changes to core behavior should be authored in `extensions/shared/background_core.js`.
 
 ## Change Boundaries
 
 - Protocol changes usually need synchronized updates across `rustab-protocol`, CLI/mediator handling, extension code, tests, and docs.
 - Extension manifest version changes must stay synchronized with `Cargo.toml` and all source browser manifests. Use `scripts/check_versions.py` or `nix run .#check-version-sync`.
-- Firefox extension source changes require re-signing or refreshing `extensions/firefox-signed/rustab@rustab.dev.xpi` before release-grade flake checks can prove the packaged XPI matches the source version.
+- Firefox extension source changes require refreshing/signing `extensions/firefox-signed/rustab@rustab.dev.xpi` before `scripts/validate release` can prove the packaged XPI matches the source version.
 - Chromium managed-release changes must preserve the extension ID derived from the private key/public manifest key relationship; never commit private keys.
 - Keep Orion-specific code limited to manifest/path/runtime compatibility and local read-only synced-state parsing; live tab/window RPCs should remain shared with other WebExtension browsers.
 

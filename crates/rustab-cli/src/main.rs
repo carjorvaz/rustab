@@ -52,7 +52,10 @@ async fn main() {
             index,
         } => cmd_open(&url, browser.as_deref(), window.as_deref(), index).await,
         Command::Clients => cmd_clients(),
-        Command::Doctor { browser } => cmd_doctor(browser.as_deref()).await,
+        Command::Doctor {
+            browser,
+            chrome_extension_id,
+        } => cmd_doctor(browser.as_deref(), chrome_extension_id.as_deref()).await,
         Command::Synced { command } => match command {
             SyncedCommand::List {
                 format,
@@ -245,7 +248,7 @@ fn resolve_window_socket<'a>(
 ) -> Result<(&'a BrowserSocket, u64), String> {
     match parse_window_arg(window_arg)? {
         WindowArg::Raw(window_id) => {
-            socket_for_raw_window_id(sockets, None).map(|sock| (sock, window_id))
+            socket_for_raw_window_id(sockets).map(|sock| (sock, window_id))
         }
         WindowArg::Scoped(window_ref) => resolve_socket_for_window_ref(sockets, window_ref)
             .map(|sock| (sock, window_ref.window_id)),

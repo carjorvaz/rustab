@@ -14,7 +14,7 @@ usage() {
 Usage: refresh-firefox-xpi [--credentials PATH]
 
 Sign Rustab's Firefox extension with AMO unlisted credentials and refresh the
-checked-in signed XPI at extensions/firefox-signed/rustab@rustab.dev.xpi.
+checked-in signed XPI at extensions/firefox-signed/<manifest gecko id>.xpi.
 
 Credentials may be provided either through WEB_EXT_API_KEY / WEB_EXT_API_SECRET
 already set in the environment or through a shell-style credentials file.
@@ -67,6 +67,7 @@ manifest = json.loads(Path("extensions/firefox/manifest.json").read_text())
 print(manifest["browser_specific_settings"]["gecko"]["id"])
 PY
 )"
+signed_firefox_xpi="extensions/firefox-signed/${firefox_addon_id}.xpi"
 
 firefox_version="$(
   python3 - <<'PY'
@@ -76,31 +77,35 @@ manifest = json.loads(Path("extensions/firefox/manifest.json").read_text())
 print(manifest["version"])
 PY
 )"
+mkdir -p extensions/firefox-signed
 
 webext_log="$(mktemp)"
-trap 'rm -f "$webext_log"' EXIT
+staging_root="$(mktemp -d)"
+staged_firefox_dir="$staging_root/firefox"
+trap 'rm -f "$webext_log"; rm -rf "$staging_root"' EXIT
+
+python3 scripts/stage_extension.py firefox "$staged_firefox_dir"
 
 if web-ext sign \
-  --source-dir=extensions/firefox \
+  --source-dir="$staged_firefox_dir" \
   --channel=unlisted \
   --api-key="$WEB_EXT_API_KEY" \
   --api-secret="$WEB_EXT_API_SECRET" \
   >"$webext_log" 2>&1; then
   cat "$webext_log"
-  cp web-ext-artifacts/*.xpi extensions/firefox-signed/rustab@rustab.dev.xpi
+  cp web-ext-artifacts/*.xpi "$signed_firefox_xpi"
 else
   cat "$webext_log" >&2
   if grep -Eq 'Version .* already exists\.|This upload has already been submitted\.' "$webext_log"; then
     python3 scripts/download_amo_signed_xpi.py \
       --addon-id "$firefox_addon_id" \
       --version "$firefox_version" \
-      --out extensions/firefox-signed/rustab@rustab.dev.xpi
+      --out "$signed_firefox_xpi"
   else
     exit 1
   fi
 fi
 
-mkdir -p extensions/firefox-signed
 python3 scripts/check_versions.py
 
-echo "refreshed extensions/firefox-signed/rustab@rustab.dev.xpi"
+echo "refreshed $signed_firefox_xpi"

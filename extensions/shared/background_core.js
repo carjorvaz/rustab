@@ -49,9 +49,7 @@
         return;
       }
 
-      executeMethod(id, method, params || {}).catch((e) => {
-        safeSend({ id, error: e.message || String(e) });
-      });
+      executeMethod(id, method, params || {});
     }
 
     function summarizeTab(tab) {

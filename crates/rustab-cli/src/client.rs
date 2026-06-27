@@ -144,15 +144,9 @@ pub fn resolve_socket_for_window_ref<'a>(
     resolve_socket(sockets, window_ref.prefix, window_ref.mediator_pid)
 }
 
-pub fn socket_for_raw_window_id<'a>(
-    sockets: &'a [BrowserSocket],
-    browser_filter: Option<&str>,
-) -> Result<&'a BrowserSocket, String> {
+pub fn socket_for_raw_window_id(sockets: &[BrowserSocket]) -> Result<&BrowserSocket, String> {
     match sockets {
-        [] => match browser_filter {
-            Some(browser) => Err(format!("No browsers connected matching '{browser}'")),
-            None => Err("No browsers connected".to_string()),
-        },
+        [] => Err("No browsers connected".to_string()),
         [socket] => Ok(socket),
         _ => Err(
             "Raw window IDs are ambiguous across multiple browser instances. Use a scoped window ID from `rustab windows`."
@@ -246,7 +240,7 @@ mod tests {
     fn raw_window_ids_require_a_single_candidate_socket() {
         let sockets = vec![socket("brave", 101), socket("brave", 202)];
 
-        let err = socket_for_raw_window_id(&sockets, None)
+        let err = socket_for_raw_window_id(&sockets)
             .expect_err("raw window IDs should be ambiguous with multiple candidates");
 
         assert!(err.contains("Raw window IDs are ambiguous"));
@@ -256,7 +250,7 @@ mod tests {
     fn raw_window_ids_use_the_only_candidate_socket() {
         let sockets = vec![socket("brave", 101)];
 
-        let resolved = socket_for_raw_window_id(&sockets, None)
+        let resolved = socket_for_raw_window_id(&sockets)
             .expect("raw window IDs should work with one candidate");
 
         assert_eq!(resolved.pid, 101);

@@ -36,11 +36,12 @@ impl Report {
     }
 }
 
-pub async fn cmd_doctor(browser_filter: Option<&str>) -> i32 {
+pub async fn cmd_doctor(browser_filter: Option<&str>, chrome_extension_id: Option<&str>) -> i32 {
     let mut report = Report::default();
+    let chrome_extension_id = chrome_extension_id.unwrap_or(CHROME_EXTENSION_ID);
 
     check_socket_dir(&mut report);
-    check_native_manifests(&mut report, browser_filter);
+    check_native_manifests(&mut report, browser_filter, chrome_extension_id);
     check_connected_browsers(&mut report, browser_filter).await;
 
     println!(
@@ -67,7 +68,11 @@ fn check_socket_dir(report: &mut Report) {
     }
 }
 
-fn check_native_manifests(report: &mut Report, browser_filter: Option<&str>) {
+fn check_native_manifests(
+    report: &mut Report,
+    browser_filter: Option<&str>,
+    chrome_extension_id: &str,
+) {
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         report.warn("$HOME is not set; skipping native messaging manifest checks");
         return;
@@ -106,7 +111,12 @@ fn check_native_manifests(report: &mut Report, browser_filter: Option<&str>) {
             }
 
             present_manifests += 1;
-            match validate_manifest(&manifest_path, browser, current_mediator.as_deref()) {
+            match validate_manifest(
+                &manifest_path,
+                browser,
+                current_mediator.as_deref(),
+                chrome_extension_id,
+            ) {
                 Ok(warnings) => {
                     report.ok(format!(
                         "{} native host manifest is readable: {}",
@@ -134,7 +144,7 @@ fn check_native_manifests(report: &mut Report, browser_filter: Option<&str>) {
 
         #[cfg(target_os = "macos")]
         if browser.name == "orion" {
-            check_orion_extension_install(report, &home);
+            check_orion_extension_install(report, &home, chrome_extension_id);
         }
     }
 
@@ -147,10 +157,10 @@ fn check_native_manifests(report: &mut Report, browser_filter: Option<&str>) {
 }
 
 #[cfg(target_os = "macos")]
-fn check_orion_extension_install(report: &mut Report, home: &Path) {
+fn check_orion_extension_install(report: &mut Report, home: &Path, chrome_extension_id: &str) {
     let manifest_path = home
         .join("Library/Application Support/Orion/Defaults/Extensions")
-        .join(CHROME_EXTENSION_ID)
+        .join(chrome_extension_id)
         .join("manifest.json");
 
     if !manifest_path.exists() {
@@ -251,6 +261,7 @@ fn validate_manifest(
     manifest_path: &Path,
     browser: &BrowserManifestInfo,
     current_mediator: Option<&Path>,
+    chrome_extension_id: &str,
 ) -> Result<Vec<String>, Vec<String>> {
     let mut warnings = Vec::new();
     let mut errors = Vec::new();
@@ -310,7 +321,7 @@ fn validate_manifest(
             ));
         }
     } else {
-        let allowed_origin = format!("chrome-extension://{CHROME_EXTENSION_ID}/");
+        let allowed_origin = format!("chrome-extension://{chrome_extension_id}/");
         if !json_array_contains(&value, "allowed_origins", &allowed_origin) {
             errors.push(format!(
                 "{}: allowed_origins does not include {allowed_origin}",
@@ -363,5 +374,44 @@ mod tests {
         ));
         assert!(!json_array_contains(&value, "allowed_origins", "other"));
         assert!(!json_array_contains(&value, "missing", "other"));
+    }
+
+    #[test]
+    fn validate_manifest_accepts_custom_chrome_extension_id() {
+        let custom_extension_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let browser = BROWSERS
+            .iter()
+            .find(|browser| !browser.is_firefox)
+            .expect("chromium browser metadata");
+        let mediator = std::env::current_exe().expect("current test executable");
+        let manifest_path = std::env::temp_dir().join(format!(
+            "rustab-doctor-manifest-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after epoch")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string(&json!({
+                "name": NATIVE_HOST_NAME,
+                "path": mediator,
+                "type": "stdio",
+                "allowed_origins": [format!("chrome-extension://{custom_extension_id}/")]
+            }))
+            .expect("render manifest"),
+        )
+        .expect("write manifest");
+
+        assert!(validate_manifest(&manifest_path, browser, None, custom_extension_id).is_ok());
+
+        let errors = validate_manifest(&manifest_path, browser, None, CHROME_EXTENSION_ID)
+            .expect_err("default expected ID must stay strict");
+        assert!(errors
+            .iter()
+            .any(|error| error.contains(&format!("chrome-extension://{CHROME_EXTENSION_ID}/"))));
+
+        std::fs::remove_file(manifest_path).expect("remove manifest");
     }
 }

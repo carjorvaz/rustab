@@ -51,26 +51,7 @@ Add rustab as a flake input:
 }
 ```
 
-The flake provides seven packages:
-- `rustab` -- CLI + mediator binaries with native messaging manifests
-- `chrome-extension` -- unpacked Chromium extension directory
-- `orion-extension` -- unpacked Orion extension directory using Orion's persistent background-page path
-- `firefox-extension` -- AMO-signed XPI for Firefox
-- `check-version-sync` -- helper for verifying release metadata stays aligned
-- `refresh-firefox-xpi` -- helper for re-signing and refreshing the checked-in Firefox XPI
-- `package-chromium-release` -- helper for building a signed CRX + update feed bundle
-
-The `rustab` package also exposes passthru metadata:
-- `chromeExtension`
-- `orionExtension`
-- `firefoxExtension`
-- `chromeExtensionId`
-- `firefoxExtensionId`
-
-The flake `lib` output also provides:
-- `chromeExtensionId`
-- `firefoxExtensionId`
-- `mkChromiumPolicy`
+The flake exposes the CLI/native-host package, staged browser extension packages, and release helper apps used below.
 
 #### Brave / Chrome / Chromium
 
@@ -96,7 +77,7 @@ in {
 }
 ```
 
-On macOS, Chromium browsers still require a one-time manual extension install because fully declarative installation would need a packaged CRX and hosted update manifest. A clean approach is to expose the unpacked extension at a stable path in your home directory and load it once from `brave://extensions`, `chrome://extensions`, or Orion's `Tools > Extensions > Install from Disk`.
+On macOS, Chromium browsers still require a one-time manual extension install because fully declarative installation would need a packaged CRX and hosted update manifest. A clean approach is to expose the staged unpacked extension package at a stable path in your home directory and load it once from `brave://extensions`, `chrome://extensions`, or Orion's `Tools > Extensions > Install from Disk`.
 
 Rustab also installs the native messaging host manifest for Brave into Chromium-family fallback locations on macOS. This is intentional: current Brave releases do not always discover `NativeMessagingHosts` from their branded `BraveSoftware/Brave-Browser` application-support directory, but they do reliably pick up the standard Chromium user paths.
 
@@ -104,7 +85,7 @@ That means `rustab install` may report multiple manifest locations for a single 
 
 #### Orion
 
-On macOS, load the unpacked Orion extension from `extensions/orion/` (or the flake's `orion-extension` package) with Orion's `Tools > Extensions > Install from Disk` flow. Orion 1.0.x exposes the Chrome WebExtensions APIs Rustab needs, but its current extension runtime is more reliable with a Manifest V2 persistent background page than with Chromium's Manifest V3 service-worker background.
+On macOS, load the staged Orion extension package (the flake's `orion-extension` output) with Orion's `Tools > Extensions > Install from Disk` flow. Orion 1.0.x exposes the Chrome WebExtensions APIs Rustab needs, but its current extension runtime is more reliable with a Manifest V2 persistent background page than with Chromium's Manifest V3 service-worker background.
 Orion live commands (`list`, `windows`, `close`, `move`, `activate`, `open`) use the same WebExtension semantics as other supported browsers; Orion-only user-visible pieces are install/runtime compatibility and read-only `rustab synced list --browser orion`.
 
 `rustab install` writes Orion's native messaging host manifest to `~/Library/Application Support/Orion/NativeMessagingHosts`.
@@ -166,9 +147,9 @@ For Home Manager + Brave on Linux, that policy can be installed through the usua
 Rustab includes a tag-driven GitHub Actions workflow at `.github/workflows/release.yml` that automates the clean GitHub-hosted path:
 
 - verifies that Cargo, Chromium, and Firefox source metadata agree on `X.Y.Z`
-- runs formatting, clippy, and tests
+- runs source validation before signing
 - signs `rustab@rustab.dev.xpi`
-- runs flake checks after the freshly signed XPI is in place
+- runs release validation after the freshly signed XPI is in place
 - signs `rustab-<version>.crx`
 - uploads both browser artifacts to GitHub Releases
 - deploys `updates.xml` and `extension-settings.json` to GitHub Pages under `/chromium/`
@@ -183,7 +164,7 @@ To use it:
 
 The workflow does not require a `gh-pages` branch. It deploys Pages directly from the workflow artifact, which keeps the repository history free of generated release files.
 
-For normal push and pull request validation, `.github/workflows/ci.yml` runs formatting, clippy, tests, and `nix flake check` without needing signing secrets.
+For normal push and pull request validation, `.github/workflows/ci.yml` runs the canonical full validation script without needing signing secrets.
 
 #### Firefox / Zen
 
@@ -206,9 +187,16 @@ cargo build --release
 ```
 
 Then load the browser extension:
-- **Chrome/Brave**: Go to `chrome://extensions` or `brave://extensions`, enable Developer Mode, and "Load unpacked" from `extensions/chrome/`
-- **Orion**: Open `Tools > Extensions > Install from Disk` and choose `extensions/orion/`
-- **Firefox**: Open `extensions/firefox-signed/rustab@rustab.dev.xpi` in Firefox to install
+
+Browser source directories contain manifests, wrappers, and assets. Browser extension packages/staging materialize the shared extension core beside those manifests. For unpacked installs, load a staged package, not the raw per-browser source directory:
+
+```sh
+nix build .#chrome-extension .#orion-extension
+```
+
+- **Chrome/Brave**: load `result` from `chrome://extensions` or `brave://extensions`
+- **Orion**: load `result-1` in `Tools > Extensions > Install from Disk`
+- **Firefox**: open `extensions/firefox-signed/rustab@rustab.dev.xpi` in Firefox
 
 `rustab install` uses the built-in Chromium extension ID by default. If you're testing a custom unpacked Chromium extension build with a different ID, pass `--chrome-extension-id <ID>`.
 
@@ -244,38 +232,22 @@ For live WebExtension RPCs, the CLI waits slightly longer than the mediator so t
 
 Durable repo guidance lives under `docs/`; start with `docs/README.md` and `AGENTS.md` if you are an agent.
 
-Enter the Nix dev shell for the canonical toolchain:
+For the canonical toolchain and exact validation modes, see `docs/VALIDATION.md`.
+
+Quick source check:
 
 ```sh
-nix develop
-just --list
-just validate-fast
-```
-
-The normal source gate is:
-
-```sh
-./scripts/validate fast
-```
-
-It checks source/manifests and extension syntax without requiring a freshly signed Firefox XPI.
-
-Before release-sensitive changes, run:
-
-```sh
-./scripts/validate full
+nix develop -c ./scripts/validate fast
 ```
 
 The flake also exposes release helpers:
 
 ```sh
-nix run .#check-version-sync
-
 # Refresh the checked-in signed Firefox XPI after extension changes
 nix run .#refresh-firefox-xpi
 
-# Re-run the consistency check before tagging a release
-nix run .#check-version-sync
+# Run release validation after refreshing/signing the Firefox XPI
+nix develop -c ./scripts/validate release
 ```
 
 If the same Firefox version has already been submitted to AMO and is already public, `refresh-firefox-xpi` will download that existing signed XPI instead of failing on a duplicate-version error. That makes reruns and release recovery much calmer.

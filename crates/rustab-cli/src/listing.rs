@@ -1,10 +1,12 @@
 use crate::client::{send_rpc, BrowserSocket};
+use crate::output::{write_tsv_row, TsvField};
 use rustab_protocol::{
     browser_prefix, format_tab_id, format_window_id, RpcRequest, TabInfo, WindowInfo,
     LIST_TABS_METHOD, LIST_WINDOWS_METHOD,
 };
 use serde_json::{json, Value};
 use std::cmp::Ordering;
+use std::io;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TabListing {
@@ -213,21 +215,42 @@ pub(crate) fn window_listings_json(windows: &[WindowListing]) -> Vec<Value> {
 }
 
 pub(crate) fn print_tab_listings_tsv(tabs: &[TabListing]) {
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+
     for tab in tabs {
-        println!("{}\t{}\t{}", tab.display_id(), tab.title, tab.url);
+        let display_id = tab.display_id();
+        write_tsv_row(
+            &mut output,
+            [
+                TsvField::id(display_id.as_str()),
+                TsvField::text(tab.title.as_str()),
+                TsvField::text(tab.url.as_str()),
+            ],
+        )
+        .expect("failed to write TSV row");
     }
 }
 
 pub(crate) fn print_window_listings_tsv(windows: &[WindowListing]) {
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+
     for window in windows {
-        println!(
-            "{}\t{}\t{}\t{}\t{}",
-            window.display_id(),
-            window.tab_count,
-            window.focused,
-            window.active_tab_title,
-            window.active_tab_url
-        );
+        let display_id = window.display_id();
+        let tab_count = window.tab_count.to_string();
+        let focused = window.focused.to_string();
+        write_tsv_row(
+            &mut output,
+            [
+                TsvField::id(display_id.as_str()),
+                TsvField::text(tab_count.as_str()),
+                TsvField::text(focused.as_str()),
+                TsvField::text(window.active_tab_title.as_str()),
+                TsvField::text(window.active_tab_url.as_str()),
+            ],
+        )
+        .expect("failed to write TSV row");
     }
 }
 

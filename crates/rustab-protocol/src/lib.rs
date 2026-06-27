@@ -5,9 +5,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const REQUEST_TIMEOUT_SECS: u64 = 10;
 pub const DEFAULT_BROWSER_REQUEST_TIMEOUT_SECS: u64 = REQUEST_TIMEOUT_SECS;
-pub const DEFAULT_CLIENT_REQUEST_TIMEOUT_SECS: u64 = REQUEST_TIMEOUT_SECS + 5;
+pub const DEFAULT_CLIENT_REQUEST_TIMEOUT_HEADROOM_SECS: u64 = 5;
 pub const ORION_BROWSER_REQUEST_TIMEOUT_SECS: u64 = 60;
-pub const ORION_CLIENT_REQUEST_TIMEOUT_SECS: u64 = ORION_BROWSER_REQUEST_TIMEOUT_SECS + 10;
+pub const ORION_CLIENT_REQUEST_TIMEOUT_HEADROOM_SECS: u64 = 10;
 pub const BROWSER_REQUEST_TIMEOUT_ENV: &str = "RUSTAB_BROWSER_REQUEST_TIMEOUT_SECS";
 pub const CLIENT_REQUEST_TIMEOUT_ENV: &str = "RUSTAB_CLIENT_REQUEST_TIMEOUT_SECS";
 pub const LIST_TABS_METHOD: &str = "list_tabs";
@@ -56,7 +56,11 @@ fn client_request_timeout_secs_from_values(
 }
 
 fn client_timeout_headroom_secs(browser: &str) -> u64 {
-    default_client_request_timeout_secs(browser) - default_browser_request_timeout_secs(browser)
+    if browser.eq_ignore_ascii_case("orion") {
+        ORION_CLIENT_REQUEST_TIMEOUT_HEADROOM_SECS
+    } else {
+        DEFAULT_CLIENT_REQUEST_TIMEOUT_HEADROOM_SECS
+    }
 }
 
 fn default_browser_request_timeout_secs(browser: &str) -> u64 {
@@ -64,14 +68,6 @@ fn default_browser_request_timeout_secs(browser: &str) -> u64 {
         ORION_BROWSER_REQUEST_TIMEOUT_SECS
     } else {
         DEFAULT_BROWSER_REQUEST_TIMEOUT_SECS
-    }
-}
-
-fn default_client_request_timeout_secs(browser: &str) -> u64 {
-    if browser.eq_ignore_ascii_case("orion") {
-        ORION_CLIENT_REQUEST_TIMEOUT_SECS
-    } else {
-        DEFAULT_CLIENT_REQUEST_TIMEOUT_SECS
     }
 }
 
@@ -106,6 +102,21 @@ pub async fn read_message_lenient<R: AsyncRead + Unpin>(
     reader: &mut R,
 ) -> io::Result<serde_json::Value> {
     read_message_with_recovery(reader, true).await
+}
+
+/// Read a browser-to-native native-messaging frame.
+///
+/// Orion 1.0.x is the only browser with a known short UTF-8 length-prefix bug;
+/// keep all other browser traffic on the strict reader.
+pub async fn read_browser_message<R: AsyncRead + Unpin>(
+    browser: &str,
+    reader: &mut R,
+) -> io::Result<serde_json::Value> {
+    if browser.eq_ignore_ascii_case("orion") {
+        read_message_lenient(reader).await
+    } else {
+        read_message(reader).await
+    }
 }
 
 async fn read_message_with_recovery<R: AsyncRead + Unpin>(
@@ -508,10 +519,14 @@ fn send_signal(pid: i32, signal: i32) -> i32 {
 
 /// Check if a PID is alive.
 ///
-/// `kill(pid, 0)` returns 0 when the process exists and is signallable,
-/// -1/ESRCH when it does not exist, and -1/EPERM when it exists but is
-/// owned by another user. Both 0 and EPERM mean "alive."
+/// `kill(pid, 0)` returns 0 when a concrete process exists and is signallable,
+/// -1/ESRCH when it does not exist, and -1/EPERM when it exists but is owned by
+/// another user. Both 0 and EPERM mean "alive." PID 0 is excluded because it
+/// targets the caller's process group rather than a socket owner's process.
 pub fn is_pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
     let Ok(pid) = i32::try_from(pid) else {
         return false;
     };
@@ -648,13 +663,8 @@ pub const FIREFOX_EXTENSION_ID: &str = "rustab@rustab.dev";
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn lenient_read_recovers_short_utf8_length_prefix() {
-        let message = serde_json::json!({
-            "id": 7,
-            "result": {"title": "café tab", "url": "https://example.com/ação"}
-        });
-        let payload = serde_json::to_vec(&message).expect("json payload");
+    fn short_utf8_frame(message: &serde_json::Value) -> Vec<u8> {
+        let payload = serde_json::to_vec(message).expect("json payload");
         let short_len = String::from_utf8(payload.clone())
             .expect("utf8 json")
             .chars()
@@ -664,7 +674,16 @@ mod tests {
         let mut framed = Vec::new();
         framed.extend_from_slice(&(short_len as u32).to_le_bytes());
         framed.extend_from_slice(&payload);
+        framed
+    }
 
+    #[tokio::test]
+    async fn lenient_read_recovers_short_utf8_length_prefix() {
+        let message = serde_json::json!({
+            "id": 7,
+            "result": {"title": "café tab", "url": "https://example.com/ação"}
+        });
+        let framed = short_utf8_frame(&message);
         let mut reader = std::io::Cursor::new(framed);
         let parsed = read_message_lenient(&mut reader).await.expect("parsed");
         assert_eq!(parsed, message);
@@ -673,21 +692,36 @@ mod tests {
     #[tokio::test]
     async fn strict_read_rejects_short_utf8_length_prefix() {
         let message = serde_json::json!({"id": 7, "result": {"title": "café tab"}});
-        let payload = serde_json::to_vec(&message).expect("json payload");
-        let short_len = String::from_utf8(payload.clone())
-            .expect("utf8 json")
-            .chars()
-            .count();
-        assert!(short_len < payload.len());
-
-        let mut framed = Vec::new();
-        framed.extend_from_slice(&(short_len as u32).to_le_bytes());
-        framed.extend_from_slice(&payload);
+        let framed = short_utf8_frame(&message);
 
         let mut reader = std::io::Cursor::new(framed);
         let error = read_message(&mut reader)
             .await
             .expect_err("strict parser rejects frame");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[tokio::test]
+    async fn browser_read_uses_lenient_reader_for_orion() {
+        let message = serde_json::json!({"id": 7, "result": {"title": "café tab"}});
+        let framed = short_utf8_frame(&message);
+
+        let mut reader = std::io::Cursor::new(framed);
+        let parsed = read_browser_message("Orion", &mut reader)
+            .await
+            .expect("orion reader recovers frame");
+        assert_eq!(parsed, message);
+    }
+
+    #[tokio::test]
+    async fn browser_read_uses_strict_reader_for_non_orion() {
+        let message = serde_json::json!({"id": 7, "result": {"title": "café tab"}});
+        let framed = short_utf8_frame(&message);
+
+        let mut reader = std::io::Cursor::new(framed);
+        let error = read_browser_message("chrome", &mut reader)
+            .await
+            .expect_err("non-orion reader rejects frame");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
@@ -709,6 +743,11 @@ mod tests {
     }
 
     #[test]
+    fn pid_zero_is_not_alive() {
+        assert!(!is_pid_alive(0));
+    }
+
+    #[test]
     fn request_with_id_preserves_caller_id() {
         let request = RpcRequest::with_id(42, LIST_TABS_METHOD, serde_json::json!({}));
 
@@ -723,8 +762,8 @@ mod tests {
                 > default_browser_request_timeout_secs("brave")
         );
         assert!(
-            default_client_request_timeout_secs("orion")
-                > default_client_request_timeout_secs("brave")
+            client_request_timeout_secs_from_values("orion", None, None)
+                > client_request_timeout_secs_from_values("brave", None, None)
         );
     }
 
@@ -732,7 +771,7 @@ mod tests {
     fn client_timeout_exceeds_browser_timeout() {
         for browser in ["brave", "firefox", "orion"] {
             assert!(
-                default_client_request_timeout_secs(browser)
+                client_request_timeout_secs_from_values(browser, None, None)
                     > default_browser_request_timeout_secs(browser),
                 "client timeout should outlast mediator/browser timeout for {browser}"
             );

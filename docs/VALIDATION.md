@@ -34,6 +34,8 @@ Runs:
 
 Use this for ordinary Rust, script, docs, manifest, and extension-source edits. It deliberately does not require the checked-in signed Firefox XPI to be refreshed; that belongs to the release path.
 
+Extension source validation checks the single authored browser core at `extensions/shared/background_core.js` plus the per-browser wrappers that load a staged `background_core.js` beside each manifest.
+
 ### `full`
 
 Release-sensitive local gate:
@@ -48,7 +50,7 @@ Runs `fast`, then:
 nix flake check --print-build-logs
 ```
 
-This verifies Nix packages/apps/checks for the current system. It may expose network/cache/vendor staging issues that are separate from source correctness; keep those failures distinct in reports.
+This verifies Nix packages/apps/checks for the current system, including browser package/staging paths that materialize `background_core.js` beside each browser manifest. It may expose network/cache/vendor staging issues that are separate from source correctness; keep those failures distinct in reports.
 
 ### `release`
 
@@ -58,7 +60,7 @@ Pre-tag sanity gate:
 ./scripts/validate release
 ```
 
-Runs `full`, then validates the checked-in signed Firefox XPI against the Firefox extension source and prints the source version from `scripts/check_versions.py --source-only --print-version`. Before pushing a tag, manually verify the intended annotated Git tag matches this version.
+Runs `full`, then validates the checked-in signed Firefox XPI against the Firefox extension source and prints the source version from `scripts/check_versions.py --source-only --print-version`. Refresh/sign the Firefox XPI before this mode; before pushing a tag, manually verify the intended annotated Git tag matches this version.
 
 ## Command Menu
 
@@ -79,11 +81,10 @@ just test
 `.github/workflows/ci.yml` should call the same validation script instead of duplicating command lists:
 
 ```sh
-nix develop -c ./scripts/validate fast
-nix flake check --print-build-logs
+nix develop -c ./scripts/validate full
 ```
 
-Release automation may still run selected release-only packaging/signing steps separately because those require GitHub secrets.
+Release automation runs source validation before signing, then runs `nix develop -c ./scripts/validate release` after the signed Firefox XPI has been refreshed because that mode intentionally validates the release payload.
 
 ## Formatting
 

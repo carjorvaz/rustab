@@ -3,7 +3,7 @@ use std::io::{BufRead, IsTerminal};
 
 /// Collect tab IDs from args, or read from stdin (one per line, first
 /// tab-delimited field, so `rustab list | rustab close` works).
-pub fn collect_tab_ids(mut args: Vec<String>) -> Vec<String> {
+pub fn collect_tab_ids(args: Vec<String>) -> Vec<String> {
     if !args.is_empty() {
         return args;
     }
@@ -13,7 +13,11 @@ pub fn collect_tab_ids(mut args: Vec<String>) -> Vec<String> {
     }
 
     let stdin = std::io::stdin();
-    for line in stdin.lock().lines() {
+    collect_tab_ids_from_reader(args, stdin.lock())
+}
+
+fn collect_tab_ids_from_reader<R: BufRead>(mut args: Vec<String>, reader: R) -> Vec<String> {
+    for line in reader.lines() {
         let Ok(line) = line else { break };
         let line = line.trim();
         if line.is_empty() {
@@ -90,5 +94,16 @@ mod tests {
         assert!(validate_open_index(None).is_ok());
         assert!(validate_open_index(Some(0)).is_ok());
         assert!(validate_open_index(Some(-1)).is_err());
+    }
+
+    #[test]
+    fn collect_tab_ids_reads_first_field_from_tsv_input() {
+        let input =
+            "b.7.9\ttitle with spaces\thttps://example.test\n\nf.3.1\tanother title\tabout:blank\n";
+
+        assert_eq!(
+            collect_tab_ids_from_reader(Vec::new(), input.as_bytes()),
+            vec!["b.7.9".to_string(), "f.3.1".to_string()]
+        );
     }
 }

@@ -9,15 +9,15 @@ Rustab is a public repository. Treat every committed file, CI log, issue, releas
 - Raw browser profiles, cookies, account state, local sync databases, or browsing history exports.
 - User-specific native-messaging manifests containing private home-directory layouts when they are not example fixtures.
 - CI logs, command transcripts, or debug dumps that include credentials, tokens, full private paths that matter operationally, or raw browser/account data.
-- Generated release bundles unless the repo intentionally tracks that artifact class. Today the checked-in signed Firefox XPI is intentional; Chromium CRX/update-feed bundles are release outputs, not normal source commits.
+- Generated release bundles unless the repo intentionally tracks that artifact class. Today the checked-in signed Firefox XPI is intentional at the manifest-derived `extensions/firefox-signed/<gecko-id>.xpi` path; Chromium CRX/update-feed bundles are release outputs, not normal source commits.
 
 ## Allowed Source Artifacts
 
 - Rust crates and tests.
 - Browser extension source manifests, background scripts, icons, and shared code.
-- The intentionally checked-in AMO-signed Firefox XPI at `extensions/firefox-signed/rustab@rustab.dev.xpi`.
+- The intentionally checked-in AMO-signed Firefox XPI at `extensions/firefox-signed/<gecko-id>.xpi`, where `<gecko-id>` comes from the Firefox manifest.
+- Secret-free scripts and docs, including staging helpers that materialize extension payloads from checked-in source files.
 - Nix package/app/check definitions.
-- Secret-free scripts and docs.
 - Example snippets using placeholder domains, keys, IDs, and paths.
 
 ## Signing and Release Secrets

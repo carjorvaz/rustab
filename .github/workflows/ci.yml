@@ -35,8 +35,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
 
-      - name: Run source validation
-        run: nix develop -c ./scripts/validate fast
+      - name: Run full validation
+        run: nix develop -c ./scripts/validate full
 
-      - name: Run flake checks
-        run: nix flake check --print-build-logs

@@ -27,6 +27,7 @@
             pkgs.bash
             pkgs.coreutils
             pkgs.python3
+            pkgs.gnugrep
             pkgs.web-ext
           ];
           text = ''
@@ -96,6 +97,7 @@
         cargoVersion;
       chromeExtensionId = "nddbmnpippfilnjoebpcnfbpebnllbgo";
       firefoxExtensionId = firefoxManifest.browser_specific_settings.gecko.id;
+      firefoxSignedXpiName = "${firefoxExtensionId}.xpi";
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -105,11 +107,8 @@
       extensionJavascriptFiles = [
         "extensions/shared/background_core.js"
         "extensions/chrome/background.js"
-        "extensions/chrome/background_core.js"
         "extensions/firefox/background.js"
-        "extensions/firefox/background_core.js"
         "extensions/orion/background.js"
-        "extensions/orion/background_core.js"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
     in
@@ -173,7 +172,7 @@
             installPhase = ''
               install -Dm444 extensions/chrome/manifest.json $out/manifest.json
               install -Dm444 extensions/chrome/background.js $out/background.js
-              install -Dm444 extensions/chrome/background_core.js $out/background_core.js
+              install -Dm444 extensions/shared/background_core.js $out/background_core.js
               install -Dm444 extensions/chrome/icon48.png $out/icon48.png
               install -Dm444 extensions/chrome/icon128.png $out/icon128.png
             '';
@@ -189,7 +188,7 @@
             installPhase = ''
               install -Dm444 extensions/orion/manifest.json $out/manifest.json
               install -Dm444 extensions/orion/background.js $out/background.js
-              install -Dm444 extensions/orion/background_core.js $out/background_core.js
+              install -Dm444 extensions/shared/background_core.js $out/background_core.js
               install -Dm444 extensions/orion/icon48.png $out/icon48.png
               install -Dm444 extensions/orion/icon128.png $out/icon128.png
             '';
@@ -199,20 +198,21 @@
           };
 
           # AMO-signed XPI matching the rycee/nur firefox-addons layout
-          # so it works with programs.firefox.profiles.<name>.extensions.packages
-          # Re-sign after changes: source .web-ext-credentials && web-ext sign \
-          #   --source-dir=extensions/firefox --channel=unlisted \
-          #   --api-key=$WEB_EXT_API_KEY --api-secret=$WEB_EXT_API_SECRET
+          # so it works with programs.firefox.profiles.<name>.extensions.packages.
+          # Re-sign after changes with the refresh-firefox-xpi app; it stages the
+          # Firefox wrapper/assets and shared background core before invoking AMO.
           firefox-extension = pkgs.stdenvNoCC.mkDerivation {
             pname = "rustab";
             inherit version;
             src = self;
+            nativeBuildInputs = [ check-version-sync ];
 
             passthru.addonId = firefoxExtensionId;
 
             installPhase = ''
-              install -Dm444 extensions/firefox-signed/${firefoxExtensionId}.xpi \
-                "$out/share/mozilla/extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}/${firefoxExtensionId}.xpi"
+              check-version-sync
+              install -Dm444 extensions/firefox-signed/${firefoxSignedXpiName} \
+                "$out/share/mozilla/extensions/{ec8030f7-c20a-464f-9b0e-13a3a9e97384}/${firefoxSignedXpiName}"
             '';
           };
 

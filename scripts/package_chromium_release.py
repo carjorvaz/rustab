@@ -6,20 +6,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
-import xml.etree.ElementTree as ET
+
+from stage_extension import stage_extension
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXTENSION_DIR = REPO_ROOT / "extensions" / "chrome"
 DEFAULT_EXTENSION_ID = "nddbmnpippfilnjoebpcnfbpebnllbgo"
-EXTENSION_FILES = [
-    "manifest.json",
-    "background.js",
-    "background_core.js",
-    "icon48.png",
-    "icon128.png",
-]
 
 MAC_BROWSER_CANDIDATES = [
     "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
@@ -214,12 +209,7 @@ def main() -> int:
         prefix="rustab-chromium-release-"
     ) as temp_dir_name:
         temp_dir = Path(temp_dir_name)
-        staged_extension_dir = temp_dir / "rustab"
-        staged_extension_dir.mkdir()
-        for relative_name in EXTENSION_FILES:
-            shutil.copy2(
-                EXTENSION_DIR / relative_name, staged_extension_dir / relative_name
-            )
+        staged_extension_dir = stage_extension("chrome", temp_dir / "rustab")
 
         staged_manifest_path = staged_extension_dir / "manifest.json"
         staged_manifest_path.chmod(0o644)

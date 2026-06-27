@@ -84,6 +84,9 @@ pub enum Command {
         /// Filter by browser (e.g. chrome, firefox, brave, orion)
         #[arg(short, long)]
         browser: Option<String>,
+        /// Chrome extension ID expected in Chromium native messaging manifests
+        #[arg(long)]
+        chrome_extension_id: Option<String>,
     },
     /// List read-only synced tabs discovered from local browser state
     Synced {
@@ -136,6 +139,30 @@ mod tests {
         };
 
         assert_eq!(index, Some(-1));
+    }
+
+    #[test]
+    fn doctor_accepts_custom_chrome_extension_id() {
+        let cli = Cli::try_parse_from([
+            "rustab",
+            "doctor",
+            "--chrome-extension-id",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ])
+        .expect("doctor --chrome-extension-id should parse");
+
+        let Command::Doctor {
+            chrome_extension_id,
+            ..
+        } = cli.command
+        else {
+            panic!("expected doctor command");
+        };
+
+        assert_eq!(
+            chrome_extension_id.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
     }
 }
 

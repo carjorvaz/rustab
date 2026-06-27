@@ -15,9 +15,7 @@ CARGO_TOML = REPO_ROOT / "Cargo.toml"
 CHROME_MANIFEST = REPO_ROOT / "extensions" / "chrome" / "manifest.json"
 FIREFOX_MANIFEST = REPO_ROOT / "extensions" / "firefox" / "manifest.json"
 ORION_MANIFEST = REPO_ROOT / "extensions" / "orion" / "manifest.json"
-SIGNED_FIREFOX_XPI = (
-    REPO_ROOT / "extensions" / "firefox-signed" / "rustab@rustab.dev.xpi"
-)
+SIGNED_FIREFOX_XPI_DIR = REPO_ROOT / "extensions" / "firefox-signed"
 CHROME_EXTENSION_ID = "nddbmnpippfilnjoebpcnfbpebnllbgo"
 FIREFOX_EXTENSION_FILES = [
     "manifest.json",
@@ -86,6 +84,19 @@ def firefox_addon_id(manifest: dict) -> str:
     return manifest["browser_specific_settings"]["gecko"]["id"]
 
 
+def signed_firefox_xpi_path(firefox_manifest: dict) -> Path:
+    return SIGNED_FIREFOX_XPI_DIR / f"{firefox_addon_id(firefox_manifest)}.xpi"
+
+
+def firefox_source_for_signed_payload(relative_name: str) -> tuple[Path, str]:
+    if relative_name == "background_core.js":
+        return SHARED_EXTENSION_CORE, "extensions/shared/background_core.js"
+    return (
+        FIREFOX_MANIFEST.parent / relative_name,
+        f"extensions/firefox/{relative_name}",
+    )
+
+
 def chrome_extension_id_from_key(manifest_key: str) -> str:
     key_bytes = base64.b64decode(manifest_key, validate=True)
     digest = hashlib.sha256(key_bytes).hexdigest()[:32]
@@ -99,8 +110,10 @@ def main() -> int:
     chrome_manifest = read_json(CHROME_MANIFEST)
     firefox_manifest = read_json(FIREFOX_MANIFEST)
     orion_manifest = read_json(ORION_MANIFEST)
+    firefox_manifest_id = firefox_addon_id(firefox_manifest)
+    signed_firefox_xpi = signed_firefox_xpi_path(firefox_manifest)
     signed_firefox_manifest = (
-        None if args.source_only else read_signed_firefox_manifest(SIGNED_FIREFOX_XPI)
+        None if args.source_only else read_signed_firefox_manifest(signed_firefox_xpi)
     )
 
     observed_versions = {
@@ -118,7 +131,6 @@ def main() -> int:
         if observed != cargo_version
     ]
 
-    firefox_manifest_id = firefox_addon_id(firefox_manifest)
     signed_firefox_id = None
 
     chrome_manifest_key = chrome_manifest.get("key")
@@ -154,10 +166,10 @@ def main() -> int:
             )
 
         for relative_name in FIREFOX_EXTENSION_FILES:
-            source_path = FIREFOX_MANIFEST.parent / relative_name
+            source_path, source_label = firefox_source_for_signed_payload(relative_name)
             try:
                 signed_file_bytes = signed_firefox_file_bytes(
-                    SIGNED_FIREFOX_XPI, relative_name
+                    signed_firefox_xpi, relative_name
                 )
             except FileNotFoundError as error:
                 mismatches.append(str(error))
@@ -168,22 +180,15 @@ def main() -> int:
                 signed_json = json.loads(signed_file_bytes)
                 if signed_json != source_json:
                     mismatches.append(
-                        f"Signed Firefox XPI {relative_name} differs from extensions/firefox/{relative_name}"
+                        f"Signed Firefox XPI {relative_name} differs from {source_label}"
                     )
                 continue
 
             source_bytes = source_path.read_bytes()
             if signed_file_bytes != source_bytes:
                 mismatches.append(
-                    f"Signed Firefox XPI {relative_name} differs from extensions/firefox/{relative_name}"
+                    f"Signed Firefox XPI {relative_name} differs from {source_label}"
                 )
-    shared_core = SHARED_EXTENSION_CORE.read_bytes()
-    for browser in ["chrome", "firefox", "orion"]:
-        core_path = REPO_ROOT / "extensions" / browser / "background_core.js"
-        if core_path.read_bytes() != shared_core:
-            mismatches.append(
-                f"extensions/{browser}/background_core.js differs from extensions/shared/background_core.js"
-            )
 
     if mismatches:
         for mismatch in mismatches:

@@ -1,12 +1,12 @@
 use rustab_protocol::{
-    browser_request_timeout_for, is_pid_alive, prepare_socket_dir, read_message,
-    read_message_lenient, socket_path, write_message,
+    browser_request_timeout_for, is_pid_alive, prepare_socket_dir, read_browser_message,
+    read_message, socket_path, write_message,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::AsyncWrite;
 use tokio::net::UnixListener;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
@@ -133,17 +133,6 @@ fn request_id(message: &Value) -> Option<u64> {
     message.get("id").and_then(Value::as_u64)
 }
 
-async fn read_browser_message<R>(browser: &str, reader: &mut R) -> std::io::Result<Value>
-where
-    R: AsyncRead + Unpin,
-{
-    if browser.eq_ignore_ascii_case("orion") {
-        read_message_lenient(reader).await
-    } else {
-        read_message(reader).await
-    }
-}
-
 fn set_request_id(message: &mut Value, id: u64) {
     message["id"] = json!(id);
 }
@@ -243,13 +232,7 @@ const FIREFOX_LAUNCH_HINTS: &[FirefoxLaunchHint] = &[
     },
 ];
 
-const CHROMIUM_PARENT_HINTS: &[(&str, &str)] = &[
-    ("brave", "brave"),
-    ("orion", "orion"),
-    ("edge", "edge"),
-    ("vivaldi", "vivaldi"),
-    ("chromium", "chromium"),
-];
+const CHROMIUM_PARENT_HINTS: &[&str] = &["brave", "orion", "edge", "vivaldi", "chromium"];
 
 fn detect_browser_from_launch_context(
     args: &[String],
@@ -274,8 +257,8 @@ fn detect_browser_from_launch_context(
 
     // Chromium-based: arg contains chrome-extension://
     if args.iter().any(|arg| arg.contains("chrome-extension://")) {
-        for &(parent_substring, browser) in CHROMIUM_PARENT_HINTS {
-            if parent_contains(parent_substring) {
+        for &browser in CHROMIUM_PARENT_HINTS {
+            if parent_contains(browser) {
                 return browser;
             }
         }
@@ -350,45 +333,7 @@ fn cleanup_stale_sockets(dir: &std::path::Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_browser_from_launch_context, read_browser_message};
-
-    fn short_utf8_frame(message: &serde_json::Value) -> Vec<u8> {
-        let payload = serde_json::to_vec(message).expect("json payload");
-        let short_len = String::from_utf8(payload.clone())
-            .expect("utf8 json")
-            .chars()
-            .count();
-        assert!(short_len < payload.len());
-
-        let mut framed = Vec::new();
-        framed.extend_from_slice(&(short_len as u32).to_le_bytes());
-        framed.extend_from_slice(&payload);
-        framed
-    }
-
-    #[tokio::test]
-    async fn orion_reader_recovers_short_utf8_length_prefix() {
-        let message = serde_json::json!({"id": 7, "result": {"title": "café tab"}});
-        let framed = short_utf8_frame(&message);
-
-        let mut reader = std::io::Cursor::new(framed);
-        let parsed = read_browser_message("Orion", &mut reader)
-            .await
-            .expect("orion reader recovers frame");
-        assert_eq!(parsed, message);
-    }
-
-    #[tokio::test]
-    async fn non_orion_reader_rejects_short_utf8_length_prefix() {
-        let message = serde_json::json!({"id": 7, "result": {"title": "café tab"}});
-        let framed = short_utf8_frame(&message);
-
-        let mut reader = std::io::Cursor::new(framed);
-        let error = read_browser_message("chrome", &mut reader)
-            .await
-            .expect_err("non-orion reader rejects frame");
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-    }
+    use super::detect_browser_from_launch_context;
 
     #[test]
     fn detects_firefox_from_parent_process_when_args_omit_mozilla_path() {

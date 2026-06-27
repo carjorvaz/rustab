@@ -53,7 +53,13 @@ jobs:
 
           pages_base_url="${PAGES_BASE_URL_OVERRIDE:-$default_pages_base_url}"
           crx_name="rustab-${version}.crx"
-          firefox_xpi_name="rustab@rustab.dev.xpi"
+          firefox_xpi_name="$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("extensions/firefox/manifest.json").read_text())
+          print(f'{manifest["browser_specific_settings"]["gecko"]["id"]}.xpi')
+          PY
+          )"
           release_asset_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${tag}/${crx_name}"
 
           {
@@ -96,8 +102,8 @@ jobs:
           cp "extensions/firefox-signed/${{ steps.meta.outputs.firefox_xpi_name }}" \
             "dist/firefox/${{ steps.meta.outputs.firefox_xpi_name }}"
 
-      - name: Run flake checks
-        run: nix flake check --print-build-logs
+      - name: Run release validation
+        run: nix develop -c ./scripts/validate release
 
       - name: Package Chromium release bundle
         run: |

@@ -4,33 +4,14 @@ This directory holds durable guidance for humans and agents working on rustab. K
 
 ## Documents
 
-- `ARCHITECTURE.md` — product boundary, process topology, identifiers, and source layout.
-- `VALIDATION.md` — canonical local, CI, full, and release validation commands.
+- `ARCHITECTURE.md` — product boundary, process topology, source layout, and release/staging ownership.
+- `VALIDATION.md` — canonical local, CI, full, and release validation guidance.
 - `PUBLIC_BOUNDARY.md` — what must never be committed, logged, or exposed in this public repo.
 - `PLANS.md` — when to create checked-in execution plans and what shape they should have.
 
-## Command Surface
+## Validation, Release, and Staging
 
-Enter the dev shell first:
-
-```sh
-nix develop
-```
-
-Then use the menu:
-
-```sh
-just --list
-just validate-fast
-just validate-full
-```
-
-For non-interactive runs, call the script directly through Nix:
-
-```sh
-nix develop -c ./scripts/validate fast
-nix develop -c ./scripts/validate full
-```
+Use the Nix dev shell for the canonical toolchain and `just --list` for the command menu. Keep command details in `VALIDATION.md`; keep release and extension-staging ownership notes in `ARCHITECTURE.md` and `PUBLIC_BOUNDARY.md`.
 
 ## Tooling Posture
 
