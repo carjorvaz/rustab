@@ -214,3 +214,29 @@ test("send failure coalesces to one pending reconnect timer", () => {
   assert.deepEqual(state(background), { connected: false, reconnectPending: true });
   assert.equal(core.clock.pendingCount(), 1);
 });
+
+test("stale disconnect cannot replace a keepalive-reconnected port", () => {
+  const core = loadCore();
+  const background = core.createRustabBackground({ api: core.api, keepalive: true });
+  const firstPort = core.ports[0];
+
+  firstPort.failPostMessage = true;
+  firstPort.onMessage.emit({ id: 1, type: "ping" });
+  assert.deepEqual(state(background), { connected: false, reconnectPending: true });
+  assert.equal(core.clock.pendingCount(), 1);
+
+  core.alarmListeners[0]({ name: "rustab-keepalive" });
+  const secondPort = core.ports[1];
+  assert.deepEqual(state(background), { connected: true, reconnectPending: false });
+  assert.equal(core.clock.pendingCount(), 0);
+
+  firstPort.onDisconnect.emit();
+  assert.deepEqual(state(background), { connected: true, reconnectPending: false });
+  assert.equal(core.clock.pendingCount(), 0);
+
+  secondPort.onMessage.emit({ id: 2, type: "ping" });
+  assert.equal(secondPort.messages.length, 1);
+  assert.equal(secondPort.messages[0].id, 2);
+  assert.equal(secondPort.messages[0].result.pong, true);
+  assert.equal(typeof secondPort.messages[0].result.timestamp, "number");
+});

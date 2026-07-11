@@ -78,7 +78,11 @@ For managed Chromium/enterprise installs, use the release helper instead of hand
 nix run .#package-chromium-release -- --help
 ```
 
-The tag-driven GitHub release path lives in [`.github/workflows/release.yml`](.github/workflows/release.yml). Validation and public-artifact boundaries live in [`docs/VALIDATION.md`](docs/VALIDATION.md) and [`docs/PUBLIC_BOUNDARY.md`](docs/PUBLIC_BOUNDARY.md).
+##### Automated GitHub Releases + Pages
+
+Before pushing the first release tag, set the repository's **Settings → Pages → Source** to **GitHub Actions** and configure signing secrets by following [`docs/PUBLIC_BOUNDARY.md`](docs/PUBLIC_BOUNDARY.md). For a custom GitHub Pages or domain base URL, optionally set the `RUSTAB_CHROMIUM_BASE_URL` repository variable.
+
+A `vX.Y.Z` tag matching the source metadata triggers [`.github/workflows/release.yml`](.github/workflows/release.yml). See [`docs/VALIDATION.md`](docs/VALIDATION.md) for validation and [`docs/PUBLIC_BOUNDARY.md`](docs/PUBLIC_BOUNDARY.md) for public-artifact boundaries and signing-secret rules.
 
 #### Firefox / Zen
 

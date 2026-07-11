@@ -23,23 +23,28 @@
     function connect() {
       if (port) return;
 
+      let connectedPort;
       try {
-        port = api.runtime.connectNative(nativeHost);
+        connectedPort = api.runtime.connectNative(nativeHost);
       } catch (e) {
         console.error("rustab: failed to connect:", e);
         scheduleReconnect();
         return;
       }
 
+      port = connectedPort;
+
       console.log("rustab: connected to native host");
 
-      port.onMessage.addListener(handleMessage);
+      connectedPort.onMessage.addListener(handleMessage);
 
-      port.onDisconnect.addListener(() => {
+      connectedPort.onDisconnect.addListener(() => {
         const err = api.runtime.lastError?.message || "unknown reason";
         console.warn("rustab: native host disconnected:", err);
-        port = null;
-        scheduleReconnect();
+        if (port === connectedPort) {
+          port = null;
+          scheduleReconnect();
+        }
       });
     }
 
@@ -212,17 +217,20 @@
     }
 
     function safeSend(msg) {
-      if (!port) {
+      const sendingPort = port;
+      if (!sendingPort) {
         console.warn("rustab: cannot send, port disconnected");
         return;
       }
 
       try {
-        port.postMessage(msg);
+        sendingPort.postMessage(msg);
       } catch (e) {
         console.error("rustab: send failed:", e);
-        port = null;
-        scheduleReconnect();
+        if (port === sendingPort) {
+          port = null;
+          scheduleReconnect();
+        }
       }
     }
 
